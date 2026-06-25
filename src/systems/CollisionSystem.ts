@@ -5,7 +5,7 @@ import { ParticleManager } from '../effects/ParticleManager';
 import { FloatingText } from '../effects/FloatingText';
 import { ScoringSystem } from './ScoringSystem';
 import { ComboSystem } from './ComboSystem';
-import { POSITIVE_COLOR, NEGATIVE_COLOR, BALL_RADIUS, CAT_BALL } from '../core/Constants';
+import { POSITIVE_COLOR, NEGATIVE_COLOR, CAT_BALL } from '../core/Constants';
 
 export interface CollisionResult {
   type: 'merge' | 'zerosum' | 'shrink' | 'special' | 'none';
@@ -56,6 +56,14 @@ export class CollisionSystem {
     this.processedPairs.clear();
   }
 
+  private getJellyBall(body: any): JellyBall | null {
+    if (!body) return null;
+    if (body.jellyBall) return body.jellyBall;
+    if (body.parent && body.parent.jellyBall) return body.parent.jellyBall;
+    if (body.gameObject && (body.gameObject as any).jellyBall) return (body.gameObject as any).jellyBall;
+    return null;
+  }
+
   private onCollision(event: any): void {
     const pairs = event.pairs;
     for (let i = 0; i < pairs.length; i++) {
@@ -66,16 +74,16 @@ export class CollisionSystem {
       // Only process ball-ball collisions
       if (bodyA.label !== 'jellyball' || bodyB.label !== 'jellyball') {
         // Ball hit wall — squash animation
-        const ball = bodyA.label === 'jellyball' ? (bodyA as any).jellyBall as JellyBall :
-                     bodyB.label === 'jellyball' ? (bodyB as any).jellyBall as JellyBall : null;
+        const ball = bodyA.label === 'jellyball' ? this.getJellyBall(bodyA) :
+                     bodyB.label === 'jellyball' ? this.getJellyBall(bodyB) : null;
         if (ball && ball.active) {
           ball.playSquash();
         }
         continue;
       }
 
-      const ballA = (bodyA as any).jellyBall as JellyBall;
-      const ballB = (bodyB as any).jellyBall as JellyBall;
+      const ballA = this.getJellyBall(bodyA);
+      const ballB = this.getJellyBall(bodyB);
 
       if (!ballA || !ballB || !ballA.active || !ballB.active) continue;
 
@@ -153,34 +161,7 @@ export class CollisionSystem {
     const absVal = ballA.absValue;
     const sign = ballA.sign;
 
-    // King Ball check: two ±16 merge
-    if (absVal === 16) {
-      // Can't go higher — make King Ball
-      if (!ballA.isKing && !ballB.isKing) {
-        const midX = (ballA.body!.position.x + ballB.body!.position.x) / 2;
-        const midY = (ballA.body!.position.y + ballB.body!.position.y) / 2;
-
-        // Keep A, remove B
-        ballB.deactivate();
-        this.ballPool.release(ballB);
-
-        ballA.makeKing();
-        ballA.playSquash();
-
-        const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-        this.particles.mergeBurst(midX, midY, color);
-        this.floatingText.show(midX, midY, '👑 KING!', '#ffd700', 28, 1000);
-
-        const points = this.scoring.addMerge(16);
-        this.floatingText.showScore(midX, midY - 30, points);
-        if (this.onFusion) this.onFusion(16);
-      }
-      return;
-    }
-
     const newAbsVal = absVal * 2;
-    if (newAbsVal > 16) return; // safety cap
-
     const newValue = newAbsVal * sign;
     const midX = (ballA.body!.position.x + ballB.body!.position.x) / 2;
     const midY = (ballA.body!.position.y + ballB.body!.position.y) / 2;
@@ -195,9 +176,16 @@ export class CollisionSystem {
     }
     ballA.playSquash();
 
-    const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-    this.particles.mergeBurst(midX, midY, color);
-    this.floatingText.showMerge(midX, midY - 20);
+    if (newAbsVal >= 2048) {
+      ballA.makeKing();
+      const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
+      this.particles.mergeBurst(midX, midY, color);
+      this.floatingText.show(midX, midY, '👑 KING!', '#ffd700', 28, 1000);
+    } else {
+      const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
+      this.particles.mergeBurst(midX, midY, color);
+      this.floatingText.showMerge(midX, midY - 20);
+    }
 
     const points = this.scoring.addMerge(newAbsVal);
     this.floatingText.showScore(midX, midY - 40, points);
@@ -265,9 +253,10 @@ export class CollisionSystem {
     if (newAbsVal > 0) {
       // Split into powers of 2 using binary representation
       let spawnCount = 0;
-      for (let i = 1; i <= 4; i++) {
-        const power = 1 << i; // 2, 4, 8, 16
-        if ((newAbsVal & power) === power) {
+      let tempVal = newAbsVal;
+      let power = 2;
+      while (tempVal > 0) {
+        if ((tempVal & power) === power) {
           // Spawn this ball
           const newBall = this.ballPool.acquire();
           if (newBall) {
@@ -275,7 +264,11 @@ export class CollisionSystem {
             const ox = (Math.random() - 0.5) * 20;
             const oy = (Math.random() - 0.5) * 20;
             newBall.activate(midX + ox, midY + oy, power * bigSign);
-            
+
+            if (power >= 2048) {
+              newBall.makeKing();
+            }
+
             // Apply velocity burst (pof pof pof)
             if (newBall.body) {
               const vx = (Math.random() - 0.5) * 4;
@@ -284,7 +277,9 @@ export class CollisionSystem {
             }
           }
           spawnCount++;
+          tempVal -= power;
         }
+        power *= 2;
       }
       
       const bigColor = bigSign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
@@ -322,9 +317,12 @@ export class CollisionSystem {
 
     if (special.special === 'multiply') {
       // ×2: double the target's value
-      const newAbsVal = Math.min(16, target.absValue * 2);
+      const newAbsVal = target.absValue * 2;
       const newValue = newAbsVal * target.sign;
       target.setValue(newValue);
+      if (newAbsVal >= 2048 && !target.isKing) {
+        target.makeKing();
+      }
       target.playSquash();
 
       this.particles.burst(x, y, 0x00ccff, 12, 3, 350);

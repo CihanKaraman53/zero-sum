@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  BALL_RADIUS, POSITIVE_COLOR, NEGATIVE_COLOR, SPECIAL_COLOR, KING_COLOR,
+  getBallRadius, POSITIVE_COLOR, NEGATIVE_COLOR, SPECIAL_COLOR, KING_COLOR,
   POSITIVE_COLOR_STR, NEGATIVE_COLOR_STR, SPECIAL_COLOR_STR, KING_COLOR_STR,
   CAT_BALL, CAT_WALL, CONTAINER_BOTTOM
 } from '../core/Constants';
@@ -75,7 +75,7 @@ export class JellyBall {
     this.isKing = false;
     this.frozen = frozen;
     this.active = true;
-    this.radius = special ? 20 : (BALL_RADIUS[this.absValue] || 18);
+    this.radius = special ? 20 : getBallRadius(this.absValue);
 
     // Create Matter.js body
     this.body = this.scene.matter.add.circle(x, y, this.radius, {
@@ -155,7 +155,7 @@ export class JellyBall {
     this.value = newValue;
     this.sign = newValue >= 0 ? 1 : -1;
     this.absValue = Math.abs(newValue);
-    this.radius = BALL_RADIUS[this.absValue] || 18;
+    this.radius = getBallRadius(this.absValue);
 
     // Update physics body radius
     if (this.body) {
@@ -208,9 +208,6 @@ export class JellyBall {
     } else if (this.special === 'divide') {
       color = SPECIAL_COLOR;
       colorStr = SPECIAL_COLOR_STR;
-    } else if (this.isKing) {
-      color = KING_COLOR;
-      colorStr = KING_COLOR_STR;
     } else if (this.sign > 0) {
       color = POSITIVE_COLOR;
       colorStr = POSITIVE_COLOR_STR;

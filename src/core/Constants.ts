@@ -28,12 +28,14 @@ export const LAUNCHER_MAX_X = CONTAINER_RIGHT - 30;
 export const DROP_COOLDOWN = 350; // ms between drops
 
 // ── Ball sizes (radius by abs value) ──
-export const BALL_RADIUS: Record<number, number> = {
-  2: 18,
-  4: 24,
-  8: 32,
-  16: 42,
-};
+export function getBallRadius(absValue: number): number {
+  if (absValue <= 2) return 18;
+  if (absValue === 4) return 24;
+  if (absValue === 8) return 32;
+  if (absValue === 16) return 42;
+  const logVal = Math.log2(absValue);
+  return Math.round(18 + (logVal - 1) * 8);
+}
 
 // ── Colors ──
 export const POSITIVE_COLOR = 0x00ff88;
