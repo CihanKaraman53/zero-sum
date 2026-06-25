@@ -106,7 +106,7 @@ export class OverflowSystem {
     });
   }
 
-  private stopPanic(): void {
+  public stopPanic(): void {
     this.isPanicMode = false;
     this.scene.tweens.killTweensOf([this.warningText, this.countdownText]);
     this.warningText.setVisible(false);

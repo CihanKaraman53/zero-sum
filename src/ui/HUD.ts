@@ -30,15 +30,34 @@ export class HUD {
     this.createTitle();
     this.createComboTracker();
 
+    // Set initial values
+    this.updateScore(this.scoring.score, this.scoring.highScore);
+    this.updateCombo(0);
+
+    // Listen to events instead of polling in update loop
+    this.scene.events.on('score-changed', this.updateScore, this);
+    this.scene.events.on('combo-changed', this.updateCombo, this);
+
+    // Clean up on shutdown
+    this.scene.events.once('shutdown', this.destroy, this);
   }
 
   update(): void {
-    // Update Score
-    this.scoreText.setText(`SCORE: ${this.scoring.score.toLocaleString()}`);
-    this.highScoreText.setText(`High Score: ${this.scoring.highScore.toLocaleString()}`);
-    this.levelText.setText(`LEVEL ${this.levelManager.currentLevel.id}`);
+    // No-op: HUD updates are now fully event-driven to maximize performance
+  }
 
+  private updateScore(score: number, highScore: number): void {
+    this.scoreText.setText(`SCORE: ${score.toLocaleString()}`);
+    this.highScoreText.setText(`High Score: ${highScore.toLocaleString()}`);
+  }
 
+  private updateCombo(comboCount: number): void {
+    this.setComboActive(comboCount);
+  }
+
+  destroy(): void {
+    this.scene.events.off('score-changed', this.updateScore, this);
+    this.scene.events.off('combo-changed', this.updateCombo, this);
   }
 
   setComboActive(multiplier: number): void {

@@ -1,3 +1,4 @@
+import Phaser from 'phaser';
 import {
   SCORE_MERGE_BASE, SCORE_ZEROSUM_BASE, SCORE_SHRINK_BASE, SCORE_BLACKHOLE_BASE
 } from '../core/Constants';
@@ -7,21 +8,28 @@ import {
  * High score persisted in localStorage.
  */
 export class ScoringSystem {
+  scene: Phaser.Scene;
   score: number = 0;
   highScore: number = 0;
   private comboMultiplier: number = 1;
 
-  constructor() {
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     this.loadHighScore();
   }
 
   reset(): void {
     this.score = 0;
     this.comboMultiplier = 1;
+    this.notifyScore();
   }
 
   setComboMultiplier(mult: number): void {
     this.comboMultiplier = mult;
+  }
+
+  private notifyScore(): void {
+    this.scene.events.emit('score-changed', this.score, this.highScore);
   }
 
   addMerge(absValue: number): number {
@@ -57,6 +65,7 @@ export class ScoringSystem {
       this.highScore = this.score;
       this.saveHighScore();
     }
+    this.notifyScore();
   }
 
   private loadHighScore(): void {

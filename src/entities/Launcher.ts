@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   LAUNCHER_Y, LAUNCHER_MIN_X, LAUNCHER_MAX_X, CONTAINER_CENTER_X,
-  DROP_COOLDOWN, CONTAINER_BORDER_COLOR
+  DROP_COOLDOWN, CONTAINER_BORDER_COLOR, getBallRadius
 } from '../core/Constants';
 
 /**
@@ -14,7 +14,7 @@ export class Launcher {
   container: Phaser.GameObjects.Container;
   bodyGfx: Phaser.GameObjects.Graphics;
   aimLine: Phaser.GameObjects.Graphics;
-  ballPreview: Phaser.GameObjects.Graphics;
+  ballPreview: Phaser.GameObjects.Sprite;
   ballLabel: Phaser.GameObjects.Text;
 
   x: number = CONTAINER_CENTER_X;
@@ -38,25 +38,89 @@ export class Launcher {
     this.aimLine = scene.add.graphics();
     this.container.add(this.aimLine);
 
-    // Main body
+    // Main body - premium cyberpunk launcher drawn dynamically
     this.bodyGfx = scene.add.graphics();
     this.container.add(this.bodyGfx);
 
     // Ball preview (mini ball inside launcher)
-    this.ballPreview = scene.add.graphics();
+    this.ballPreview = scene.add.sprite(0, 0, 'positive_ball');
     this.container.add(this.ballPreview);
 
     this.ballLabel = scene.add.text(0, 0, '', {
       fontFamily: '"Orbitron", monospace',
-      fontSize: '12px',
+      fontSize: '18px', // Slightly larger font since launcher is bigger
       fontStyle: 'bold',
       color: '#ffffff',
       stroke: '#000000',
-      strokeThickness: 1,
+      strokeThickness: 2,
     }).setOrigin(0.5);
     this.container.add(this.ballLabel);
 
     this.drawBody();
+  }
+
+  private drawBody(): void {
+    this.bodyGfx.clear();
+
+    // 1. Sleek Cyberpunk stabilizer wings
+    // Dark steel metallic base
+    this.bodyGfx.fillStyle(0x111625, 0.95);
+    // Left wing
+    this.bodyGfx.fillRoundedRect(-110, -10, 80, 20, 4);
+    // Right wing
+    this.bodyGfx.fillRoundedRect(30, -10, 80, 20, 4);
+
+    // Neon highlight lines on the stabilizer wings
+    this.bodyGfx.lineStyle(1.5, 0x00ccff, 0.8);
+    this.bodyGfx.strokeRoundedRect(-110, -10, 80, 20, 4);
+    this.bodyGfx.strokeRoundedRect(30, -10, 80, 20, 4);
+
+    // Inner wing circuit details
+    this.bodyGfx.lineStyle(1, 0x00ff88, 0.5);
+    this.bodyGfx.lineBetween(-100, 0, -40, 0);
+    this.bodyGfx.lineBetween(40, 0, 100, 0);
+
+    // LED indicators on stabilizer wings
+    this.bodyGfx.fillStyle(0x00ff88, 0.8);
+    this.bodyGfx.fillCircle(-90, 0, 2.5);
+    this.bodyGfx.fillCircle(90, 0, 2.5);
+
+    // 2. Central circular housing (holding the ball)
+    // Outer metallic ring
+    this.bodyGfx.fillStyle(0x1a2135, 1);
+    this.bodyGfx.fillCircle(0, 0, 36);
+    this.bodyGfx.lineStyle(3, 0x00ccff, 1);
+    this.bodyGfx.strokeCircle(0, 0, 36);
+
+    // Inner glowing ring
+    this.bodyGfx.lineStyle(1.5, 0x00ff88, 0.7);
+    this.bodyGfx.strokeCircle(0, 0, 28);
+
+    // 3. Cyber claws gripping the ball (styled as small curved mechanical claws)
+    this.bodyGfx.fillStyle(0x2a354d, 1);
+    this.bodyGfx.lineStyle(1.5, 0x00ccff, 0.8);
+    
+    // Left claw shape
+    this.bodyGfx.beginPath();
+    this.bodyGfx.moveTo(-34, -10);
+    this.bodyGfx.lineTo(-24, 0);
+    this.bodyGfx.lineTo(-34, 10);
+    this.bodyGfx.closePath();
+    this.bodyGfx.fillPath();
+    this.bodyGfx.strokePath();
+
+    // Right claw shape
+    this.bodyGfx.beginPath();
+    this.bodyGfx.moveTo(34, -10);
+    this.bodyGfx.lineTo(24, 0);
+    this.bodyGfx.lineTo(34, 10);
+    this.bodyGfx.closePath();
+    this.bodyGfx.fillPath();
+    this.bodyGfx.strokePath();
+    
+    // Small glowing power core at top center
+    this.bodyGfx.fillStyle(0x00ccff, 0.9);
+    this.bodyGfx.fillCircle(0, -32, 4);
   }
 
   /**
@@ -131,54 +195,23 @@ export class Launcher {
     return LAUNCHER_Y + 20;
   }
 
-  private drawBody(): void {
-    this.bodyGfx.clear();
 
-    // Main housing
-    this.bodyGfx.fillStyle(0x1a1a2e, 1);
-    this.bodyGfx.fillRoundedRect(-22, -18, 44, 36, 6);
-
-    // Border glow
-    this.bodyGfx.lineStyle(2, CONTAINER_BORDER_COLOR, 0.8);
-    this.bodyGfx.strokeRoundedRect(-22, -18, 44, 36, 6);
-
-    // Inner mechanism circle
-    this.bodyGfx.fillStyle(0x0a0a1a, 1);
-    this.bodyGfx.fillCircle(0, 0, 14);
-    this.bodyGfx.lineStyle(1.5, 0x00ccff, 0.6);
-    this.bodyGfx.strokeCircle(0, 0, 14);
-
-    // Neon dots on sides
-    this.bodyGfx.fillStyle(0x00ccff, 0.8);
-    this.bodyGfx.fillCircle(-17, -10, 2);
-    this.bodyGfx.fillCircle(17, -10, 2);
-    this.bodyGfx.fillCircle(-17, 10, 2);
-    this.bodyGfx.fillCircle(17, 10, 2);
-
-    // Bottom nozzle
-    this.bodyGfx.fillStyle(0x2a2a4e, 1);
-    this.bodyGfx.fillRect(-6, 16, 12, 6);
-    this.bodyGfx.lineStyle(1, CONTAINER_BORDER_COLOR, 0.6);
-    this.bodyGfx.strokeRect(-6, 16, 12, 6);
-  }
 
   private drawPreview(): void {
-    this.ballPreview.clear();
-    const r = 10;
-
-    let color: number;
     if (this.previewSpecial) {
-      color = 0x00ccff;
+      this.ballPreview.setTexture('positive_ball');
+      this.ballPreview.setTint(0x00ccff);
     } else if (this.previewValue > 0) {
-      color = 0x00ff88;
+      this.ballPreview.setTexture('positive_ball');
+      this.ballPreview.clearTint();
     } else {
-      color = 0xff3388;
+      this.ballPreview.setTexture('negative_ball');
+      this.ballPreview.clearTint();
     }
 
-    this.ballPreview.fillStyle(color, 0.7);
-    this.ballPreview.fillCircle(0, 0, r);
-    this.ballPreview.lineStyle(1, color, 1);
-    this.ballPreview.strokeCircle(0, 0, r);
+    // Scale preview ball to match its actual physical dropped size
+    const radius = this.previewSpecial ? 20 : getBallRadius(this.previewValue);
+    this.ballPreview.setDisplaySize(radius * 2, radius * 2);
 
     if (this.previewSpecial === 'multiply') {
       this.ballLabel.setText('×2');
@@ -192,22 +225,19 @@ export class Launcher {
 
   private drawAimLine(time: number): void {
     this.aimLine.clear();
-    const alpha = 0.15 + 0.1 * Math.sin(time * 0.004);
-    this.aimLine.lineStyle(1, 0x00ccff, alpha);
+    // Pulsing opacity effect (alpha tween)
+    const alpha = 0.2 + 0.15 * Math.sin(time * 0.005);
+    
+    // Glowing thin cyan/blue line
+    this.aimLine.lineStyle(2, 0x00ccff, alpha);
 
-    // Dashed line
-    const startY = 22;
-    const endY = 200;
-    const dashLen = 8;
-    const gapLen = 6;
-    let y = startY;
-    while (y < endY) {
-      const end = Math.min(y + dashLen, endY);
-      this.aimLine.beginPath();
-      this.aimLine.moveTo(0, y);
-      this.aimLine.lineTo(0, end);
-      this.aimLine.strokePath();
-      y = end + gapLen;
-    }
+    // Draw straight line from bottom-center of launcher to bottom of the grid
+    const startY = 32; // Half of launcher height (65 / 2)
+    const endY = 800; // Far enough to reach bottom of the grid
+    
+    this.aimLine.beginPath();
+    this.aimLine.moveTo(0, startY);
+    this.aimLine.lineTo(0, endY);
+    this.aimLine.strokePath();
   }
 }

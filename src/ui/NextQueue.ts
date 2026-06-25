@@ -10,8 +10,7 @@ export class NextQueue {
   levelManager: LevelManager;
   container: Phaser.GameObjects.Container;
 
-  private boxesGfx: Phaser.GameObjects.Graphics;
-  private previewGraphics: Phaser.GameObjects.Graphics[] = [];
+  private previewSprites: Phaser.GameObjects.Sprite[] = [];
   private previewLabels: Phaser.GameObjects.Text[] = [];
 
   constructor(scene: Phaser.Scene, levelManager: LevelManager) {
@@ -31,31 +30,23 @@ export class NextQueue {
     }).setOrigin(0.5);
     this.container.add(title);
 
-    this.boxesGfx = scene.add.graphics();
-    this.container.add(this.boxesGfx);
-
     // Create 2 preview slots
     for (let i = 0; i < 2; i++) {
       const bx = i * 50;
 
-      // Box outline
-      this.boxesGfx.lineStyle(2, CONTAINER_BORDER_COLOR, 0.6);
-      this.boxesGfx.strokeRect(bx, 0, 40, 40);
-
-      // Inner graphic
-      const gfx = scene.add.graphics();
-      gfx.setPosition(bx + 20, 20);
-      this.container.add(gfx);
-      this.previewGraphics.push(gfx);
+      // Sprite preview
+      const sprite = scene.add.sprite(bx + 20, 20, 'positive_ball');
+      this.container.add(sprite);
+      this.previewSprites.push(sprite);
 
       // Label
       const label = scene.add.text(bx + 20, 20, '', {
         fontFamily: '"Orbitron", monospace',
-        fontSize: '12px',
+        fontSize: '14px',
         color: '#ffffff',
         fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 1,
+        strokeThickness: 1.5,
       }).setOrigin(0.5);
       this.container.add(label);
       this.previewLabels.push(label);
@@ -67,24 +58,30 @@ export class NextQueue {
 
     for (let i = 0; i < 2; i++) {
       const item = queue[i];
-      const gfx = this.previewGraphics[i];
+      const sprite = this.previewSprites[i];
       const label = this.previewLabels[i];
 
-      gfx.clear();
       if (!item) {
+        sprite.setVisible(false);
         label.setText('');
         continue;
       }
 
-      let color: number;
-      if (item.special) color = 0x00ccff;
-      else if (item.value > 0) color = 0x00ff88;
-      else color = 0xff3388;
+      sprite.setVisible(true);
 
-      gfx.fillStyle(color, 0.7);
-      gfx.fillCircle(0, 0, 14);
-      gfx.lineStyle(1.5, color, 1);
-      gfx.strokeCircle(0, 0, 14);
+      if (item.special) {
+        sprite.setTexture('positive_ball');
+        sprite.setTint(0x00ccff);
+      } else if (item.value > 0) {
+        sprite.setTexture('positive_ball');
+        sprite.clearTint();
+      } else {
+        sprite.setTexture('negative_ball');
+        sprite.clearTint();
+      }
+
+      // Display size (diameter 38px)
+      sprite.setDisplaySize(38, 38);
 
       if (item.special === 'multiply') {
         label.setText('×2');

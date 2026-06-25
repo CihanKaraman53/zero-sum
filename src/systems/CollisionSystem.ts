@@ -31,7 +31,7 @@ export class CollisionSystem {
   private processedPairs: Set<string> = new Set();
   // Fusion callback for level manager
   onFusion: ((absValue: number) => void) | null = null;
-  onBallDestroyed: (() => void) | null = null;
+  onBallDestroyed: ((wasFrozen: boolean) => void) | null = null;
 
   constructor(
     scene: Phaser.Scene,
@@ -154,7 +154,7 @@ export class CollisionSystem {
     const points = this.scoring.addShrink(victimVal);
     this.floatingText.showScore(midX, midY - 20, points);
 
-    if (this.onBallDestroyed) this.onBallDestroyed();
+    if (this.onBallDestroyed) this.onBallDestroyed(victim.frozen);
   }
 
   private handleMerge(ballA: JellyBall, ballB: JellyBall): void {
@@ -222,7 +222,8 @@ export class CollisionSystem {
       this.floatingText.showCombo(midX, midY - 80, comboCount);
     }
 
-    if (this.onBallDestroyed) this.onBallDestroyed();
+    const wasFrozen = ballA.frozen || ballB.frozen;
+    if (this.onBallDestroyed) this.onBallDestroyed(wasFrozen);
   }
 
   private handleShrink(ballA: JellyBall, ballB: JellyBall): void {
@@ -295,7 +296,7 @@ export class CollisionSystem {
     const points = this.scoring.addShrink(smallAbsVal);
     this.floatingText.showScore(midX, midY - 20, points);
 
-    if (this.onBallDestroyed) this.onBallDestroyed();
+    if (this.onBallDestroyed) this.onBallDestroyed(smaller.frozen);
   }
 
   private handleSpecialCollision(ballA: JellyBall, ballB: JellyBall): void {

@@ -17,6 +17,7 @@ export class JellyBall {
   body: MatterJS.BodyType | null = null;
   container: Phaser.GameObjects.Container;
   gfx: Phaser.GameObjects.Graphics;
+  sprite: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
 
   crownGfx: Phaser.GameObjects.Graphics;
@@ -32,6 +33,7 @@ export class JellyBall {
 
   // Squash & stretch state (reused, no alloc)
   private squashTween: Phaser.Tweens.Tween | null = null;
+  private wobbleScale: number = 0; // used for collision wobble
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -41,9 +43,13 @@ export class JellyBall {
     this.container.setVisible(false);
     this.container.setDepth(10);
 
-    // Main ball graphic
+    // We will use gfx for frozen overlay or stroke only, no main body fill
     this.gfx = scene.add.graphics();
     this.container.add(this.gfx);
+
+    // PNG Sprite
+    this.sprite = scene.add.sprite(0, 0, 'positive_ball');
+    this.container.add(this.sprite);
 
     // Number label
     this.label = scene.add.text(0, 0, '', {
@@ -79,10 +85,10 @@ export class JellyBall {
 
     // Create Matter.js body
     this.body = this.scene.matter.add.circle(x, y, this.radius, {
-      restitution: 0.3,
-      friction: 0.05,
-      frictionAir: 0.01,
-      density: 0.002,
+      restitution: 0.1, // Softer bounce
+      friction: 0.1,
+      frictionAir: 0.015,
+      density: 0.001, // Lighter feel
       isStatic: frozen,
       collisionFilter: {
         category: CAT_BALL,
@@ -136,7 +142,39 @@ export class JellyBall {
   syncPosition(): void {
     if (!this.active || !this.body) return;
     this.container.setPosition(this.body.position.x, this.body.position.y);
-    this.container.setRotation(this.body.angle);
+    
+    // Physics-based procedural jelly stretch!
+    // Instead of rotating the whole container, we rotate the sprite towards velocity
+    // and stretch it based on speed.
+    const vx = this.body.velocity.x;
+    const vy = this.body.velocity.y;
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    
+    const r = this.body.circleRadius || 15;
+    const baseSize = Math.min(this.sprite.width, this.sprite.height) || 256; 
+    const baseScale = (r * 3.2) / baseSize;
+
+    if (speed > 1.5 && !this.frozen) {
+      // Moving fast: align to velocity vector and stretch
+      const angle = Math.atan2(vy, vx);
+      this.sprite.setRotation(angle);
+      
+      const stretch = Math.min(speed * 0.02, 0.4); // max 40% stretch
+      this.sprite.setScale(
+        baseScale * (1 + stretch + this.wobbleScale), 
+        baseScale * (1 - stretch + this.wobbleScale)
+      );
+    } else {
+      // Idle or moving slow: normal rotation and slight wobble
+      this.sprite.setRotation(this.body.angle);
+      this.sprite.setScale(
+        baseScale * (1 + this.wobbleScale), 
+        baseScale * (1 - this.wobbleScale)
+      );
+    }
+
+    // Keep label rotation fixed so it's always readable
+    this.label.setRotation(0);
 
 
 
@@ -176,20 +214,24 @@ export class JellyBall {
   }
 
   /**
-   * Squash & stretch tween for jelly feel on collision.
+   * Physics-based wobble impact for collisions.
    */
   playSquash(): void {
     if (this.squashTween) this.squashTween.stop();
-    this.container.setScale(1, 1);
+    this.wobbleScale = 0;
+    
+    // Check collision speed to determine wobble intensity
+    const speed = Math.sqrt(this.body!.velocity.x ** 2 + this.body!.velocity.y ** 2);
+    const intensity = Phaser.Math.Clamp(speed * 0.05, 0.1, 0.3);
+
     this.squashTween = this.scene.tweens.add({
-      targets: this.container,
-      scaleX: 1.2,
-      scaleY: 0.8,
-      duration: 80,
+      targets: this,
+      wobbleScale: { from: intensity, to: -intensity * 0.5 },
+      duration: 60,
       yoyo: true,
-      ease: 'Sine.easeInOut',
+      ease: 'Quad.easeOut',
       onComplete: () => {
-        if (this.container) this.container.setScale(1, 1);
+        this.wobbleScale = 0;
       }
     });
   }
@@ -205,39 +247,34 @@ export class JellyBall {
     if (this.special === 'multiply') {
       color = SPECIAL_COLOR;
       colorStr = SPECIAL_COLOR_STR;
+      this.sprite.setTexture('positive_ball');
+      this.sprite.setTint(SPECIAL_COLOR);
     } else if (this.special === 'divide') {
       color = SPECIAL_COLOR;
       colorStr = SPECIAL_COLOR_STR;
+      this.sprite.setTexture('positive_ball');
+      this.sprite.setTint(SPECIAL_COLOR);
     } else if (this.sign > 0) {
       color = POSITIVE_COLOR;
       colorStr = POSITIVE_COLOR_STR;
+      this.sprite.setTexture('positive_ball');
+      this.sprite.clearTint();
     } else {
       color = NEGATIVE_COLOR;
       colorStr = NEGATIVE_COLOR_STR;
+      this.sprite.setTexture('negative_ball');
+      this.sprite.clearTint();
     }
 
-    // Main ball
+    // Dynamic Size Scaling based on radius is now handled dynamically in syncPosition
+    // We only set texture and tint here
+    
+    // Main ball (Clear GFX, only use for frozen)
     this.gfx.clear();
 
-    // Outer glow
-    this.gfx.fillStyle(color, 0.15);
-    this.gfx.fillCircle(0, 0, r + 6);
-
-    // Main body
-    this.gfx.fillStyle(color, 0.6);
-    this.gfx.fillCircle(0, 0, r);
-
-    // Inner bright core
-    this.gfx.fillStyle(color, 0.9);
-    this.gfx.fillCircle(0, 0, r * 0.7);
-
-    // Specular highlight
-    this.gfx.fillStyle(0xffffff, 0.3);
-    this.gfx.fillCircle(-r * 0.25, -r * 0.25, r * 0.35);
-
-    // Border ring
-    this.gfx.lineStyle(2, color, 1);
-    this.gfx.strokeCircle(0, 0, r);
+    // Border ring (optional, can help if image has empty borders)
+    // this.gfx.lineStyle(2, color, 1);
+    // this.gfx.strokeCircle(0, 0, r);
 
     // Frozen overlay
     if (this.frozen) {

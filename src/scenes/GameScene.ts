@@ -64,8 +64,8 @@ export class GameScene extends Phaser.Scene {
     this.floatingText = new FloatingText(this);
 
     // 2. Initialize Core Systems
-    this.scoring = new ScoringSystem();
-    this.combo = new ComboSystem(() => this.blackHoleSys.trigger());
+    this.scoring = new ScoringSystem(this);
+    this.combo = new ComboSystem(this, () => this.blackHoleSys.trigger());
     this.levelManager = new LevelManager(this.scoring);
     
     // 3. Initialize Pools
@@ -92,7 +92,7 @@ export class GameScene extends Phaser.Scene {
 
     // Callbacks for level progression
     this.collisionSys.onFusion = (value: number) => this.levelManager.registerFusion(value);
-    this.collisionSys.onBallDestroyed = () => this.levelManager.registerDestroyedBall(false); // Can improve to pass if frozen
+    this.collisionSys.onBallDestroyed = (wasFrozen: boolean) => this.levelManager.registerDestroyedBall(wasFrozen);
 
     // 6. Setup Container Walls (Matter Static Bodies)
     this.setupWalls();
@@ -127,15 +127,9 @@ export class GameScene extends Phaser.Scene {
       this.blackHoleSys.update(FIXED_TIMESTEP);
       this.overflowSys.update(FIXED_TIMESTEP);
 
-      // Level Progression Check
-      if (this.levelManager.checkWinCondition()) {
-        this.levelManager.nextLevel();
-        this.launcher.setSpeed(this.levelManager.getLauncherSpeed());
-        this.floatingText.show(GAME_WIDTH/2, GAME_HEIGHT/2, 'LEVEL UP!', '#00ff88', 36, 1500);
-      }
 
-      this.hud.setComboActive(this.combo.getMultiplier());
-      this.hud.update();
+
+
 
       // Clear collision processed flags for the next step
       this.collisionSys.clearProcessed();

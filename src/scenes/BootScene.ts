@@ -24,6 +24,14 @@ export class BootScene extends Phaser.Scene {
       color: '#00ff88'
     }).setOrigin(0.5);
 
+    // Load ball textures
+    this.load.image('positive_ball', 'assets/positive.png');
+    this.load.image('negative_ball', 'assets/negative.png');
+    
+    // Load launcher texture
+    this.load.image('launcher', 'assets/launcher.png');
+    // For King balls, we can tint the positive ball or keep a separate asset, but we'll use a tint for now.
+    
     // Load custom font (Orbitron) via a dummy text to ensure it's loaded by the browser
     // Assuming Orbitron is imported in index.html (we will add it there or via WebFont loader)
     // For this implementation, we just wait a short moment and transition.

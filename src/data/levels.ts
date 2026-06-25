@@ -22,119 +22,141 @@ export interface LevelConfig {
 export const LEVELS: LevelConfig[] = [
   {
     id: 1,
-    name: 'İlk Adım',
+    name: 'Genesis Matrix',
     type: 'score_attack',
     targetScore: 500,
     spawnPool: [2, -2],
     specialChance: 0,
     gravity: 1.0,
     dropSpeed: 1.2,
-    description: 'Aynı sayıları birleştir! +2 ile +2 = +4 olur.'
+    description: 'İlk Adım: Aynı sayıları birleştir! Zıt sayıları çarpıştırarak yok et.'
   },
   {
     id: 2,
-    name: 'Sıfır Gücü',
-    type: 'score_attack',
-    targetScore: 1000,
-    spawnPool: [2, -2],
-    specialChance: 0,
-    gravity: 1.0,
-    dropSpeed: 1.4,
-    description: 'Zıt sayıları buluştur! +2 ve -2 = ZERO SUM patlaması!'
-  },
-  {
-    id: 3,
-    name: 'Füzyon Hedefi',
-    type: 'fusion_goal',
-    fusionTarget: 4,
-    spawnPool: [2, -2],
-    specialChance: 0,
-    gravity: 1.0,
-    dropSpeed: 1.4,
-    description: '+4 topunu oluştur! İki tane +2 birleştir.'
-  },
-  {
-    id: 4,
-    name: 'Yeni Boyut',
-    type: 'score_attack',
-    targetScore: 2000,
-    spawnPool: [2, -2, 4, -4],
-    specialChance: 0,
-    gravity: 1.1,
-    dropSpeed: 1.5,
-    description: '±4 toplar sahneye çıkıyor! Büyük birleşmeler yap.'
-  },
-  {
-    id: 5,
-    name: 'Sekizli Hedef',
+    name: 'The Core Reaction',
     type: 'fusion_goal',
     fusionTarget: 8,
-    spawnPool: [2, -2, 4, -4],
-    specialChance: 0,
-    gravity: 1.1,
-    dropSpeed: 1.5,
-    description: '+8 topunu oluştur! +4 ile +4 birleştir.'
-  },
-  {
-    id: 6,
-    name: 'Çarpma Gücü',
-    type: 'score_attack',
-    targetScore: 3500,
-    spawnPool: [2, -2, 4, -4],
-    specialChance: 0.12,
-    gravity: 1.1,
-    dropSpeed: 1.6,
-    description: '×2 topu ile sayıları ikiye katla!'
-  },
-  {
-    id: 7,
-    name: 'Tahta Temizliği',
-    type: 'board_clear',
-    clearCount: 5,
-    spawnPool: [-2, -4, -2, -4],
+    spawnPool: [2, -2, 4],
     specialChance: 0,
     gravity: 1.0,
     dropSpeed: 1.4,
-    description: 'Donmuş pozitif topları negatiflerle yok et!',
+    description: '+8 topunu oluştur! Alttaki topları birleştirmeyi dene.',
     preplacedBalls: [
-      { value: 2, x: 120, y: 700, frozen: true },
-      { value: 4, x: 200, y: 700, frozen: true },
-      { value: 2, x: 280, y: 700, frozen: true },
-      { value: 4, x: 160, y: 640, frozen: true },
-      { value: 2, x: 240, y: 640, frozen: true },
+      { value: 2, x: 180, y: 780 },
+      { value: 2, x: 240, y: 780 },
+      { value: 2, x: 300, y: 780 }
     ]
   },
   {
-    id: 8,
-    name: 'Bölme Ustası',
+    id: 3,
+    name: 'Zero Sum Academy',
+    type: 'board_clear',
+    clearCount: 4,
+    spawnPool: [-2, -4],
+    specialChance: 0,
+    gravity: 1.0,
+    dropSpeed: 1.4,
+    description: 'Donmuş pozitif $+4$ bloklarını negatif toplarla yok et!',
+    preplacedBalls: [
+      { value: 4, x: 120, y: 780, frozen: true },
+      { value: 4, x: 200, y: 780, frozen: true },
+      { value: 4, x: 280, y: 780, frozen: true },
+      { value: 4, x: 360, y: 780, frozen: true }
+    ]
+  },
+  {
+    id: 4,
+    name: 'Spinning Gates',
     type: 'score_attack',
-    targetScore: 5000,
-    spawnPool: [2, -2, 4, -4, 8, -8],
+    targetScore: 1500,
+    spawnPool: [2, -2, 4, -4],
+    specialChance: 0,
+    gravity: 1.1,
+    dropSpeed: 1.5,
+    description: 'Dönen engelleri aşarak 1500 puana ulaş.'
+  },
+  {
+    id: 5,
+    name: 'Bubbled Ascent',
+    type: 'fusion_goal',
+    fusionTarget: 16,
+    spawnPool: [2, -2, 4, -4],
+    specialChance: 0.05,
+    gravity: 1.1,
+    dropSpeed: 1.5,
+    description: '+16 değerindeki topu birleştirerek fırlatıcıyı şarj et!'
+  },
+  {
+    id: 6,
+    name: 'Magnetized Divide',
+    type: 'board_clear',
+    clearCount: 6,
+    spawnPool: [2, -2, 4, -4],
+    specialChance: 0,
+    gravity: 1.1,
+    dropSpeed: 1.6,
+    description: 'Tüm donmuş blokları zıt yüklerle yok et!',
+    preplacedBalls: [
+      { value: 8, x: 120, y: 780, frozen: true },
+      { value: 8, x: 200, y: 780, frozen: true },
+      { value: 8, x: 280, y: 780, frozen: true },
+      { value: -8, x: 160, y: 720, frozen: true },
+      { value: -8, x: 240, y: 720, frozen: true },
+      { value: -8, x: 320, y: 720, frozen: true }
+    ]
+  },
+  {
+    id: 7,
+    name: 'Chain Breaker',
+    type: 'fusion_goal',
+    fusionTarget: 32,
+    spawnPool: [2, -2, 4, -4, 8],
+    specialChance: 0.1,
+    gravity: 1.15,
+    dropSpeed: 1.6,
+    description: 'Zincirli engelleri aşarak +32 topunu oluştur!'
+  },
+  {
+    id: 8,
+    name: 'Monsoon Valley',
+    type: 'score_attack',
+    targetScore: 4000,
+    spawnPool: [2, -2, 4, -4, 8],
     specialChance: 0.15,
     gravity: 1.2,
     dropSpeed: 1.7,
-    description: '÷2 topu sıkışan alanı kurtarır! Topları böl.'
+    description: 'Rüzgarlı vadide engellere çarparak 4000 puana ulaş!'
   },
   {
     id: 9,
-    name: 'Kral Yolu',
+    name: 'Spectral Maze',
     type: 'fusion_goal',
-    fusionTarget: 16,
-    spawnPool: [2, -2, 4, -4, 8, -8],
+    fusionTarget: 64,
+    spawnPool: [2, -2, 4, -4, 8],
     specialChance: 0.1,
     gravity: 1.2,
     dropSpeed: 1.7,
-    description: '+16 topunu oluştur! ×2 gücünü kullan.'
+    description: '+64 değerindeki devasa topu oluştur!'
   },
   {
     id: 10,
-    name: 'Kara Delik',
-    type: 'score_attack',
-    targetScore: 8000,
-    spawnPool: [2, -2, 4, -4, 8, -8],
-    specialChance: 0.18,
+    name: 'The Abyss',
+    type: 'board_clear',
+    clearCount: 8,
+    spawnPool: [-2, -4, -8],
+    specialChance: 0.15,
     gravity: 1.3,
     dropSpeed: 1.8,
-    description: 'Peş peşe Zero Sum yap ve Kara Deliği tetikle!'
+    description: 'Asit yükselmeden tahtadaki donmuş blokları erit!',
+    preplacedBalls: [
+      { value: 16, x: 80, y: 780, frozen: true },
+      { value: 16, x: 160, y: 780, frozen: true },
+      { value: 16, x: 240, y: 780, frozen: true },
+      { value: 16, x: 320, y: 780, frozen: true },
+      { value: 16, x: 400, y: 780, frozen: true },
+      { value: -16, x: 120, y: 720, frozen: true },
+      { value: -16, x: 240, y: 720, frozen: true },
+      { value: -16, x: 360, y: 720, frozen: true }
+    ]
   }
 ];

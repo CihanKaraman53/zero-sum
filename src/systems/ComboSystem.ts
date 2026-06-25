@@ -1,3 +1,4 @@
+import Phaser from 'phaser';
 import { COMBO_TIMEOUT, BLACK_HOLE_TRIGGER } from '../core/Constants';
 
 /**
@@ -5,13 +6,15 @@ import { COMBO_TIMEOUT, BLACK_HOLE_TRIGGER } from '../core/Constants';
  * Triggers Black Hole when threshold reached.
  */
 export class ComboSystem {
+  scene: Phaser.Scene;
   comboCount: number = 0;
   maxCombo: number = 0;
   lastZeroSumTime: number = 0;
   blackHoleReady: boolean = false;
   private onBlackHoleTrigger: (() => void) | null = null;
 
-  constructor(onBlackHoleTrigger?: () => void) {
+  constructor(scene: Phaser.Scene, onBlackHoleTrigger?: () => void) {
+    this.scene = scene;
     this.onBlackHoleTrigger = onBlackHoleTrigger || null;
   }
 
@@ -20,6 +23,11 @@ export class ComboSystem {
     this.maxCombo = 0;
     this.lastZeroSumTime = 0;
     this.blackHoleReady = false;
+    this.notifyCombo();
+  }
+
+  private notifyCombo(): void {
+    this.scene.events.emit('combo-changed', this.comboCount);
   }
 
   /**
@@ -46,6 +54,7 @@ export class ComboSystem {
       }
     }
 
+    this.notifyCombo();
     return this.comboCount;
   }
 
@@ -56,12 +65,14 @@ export class ComboSystem {
     if (this.comboCount > 0 && time - this.lastZeroSumTime > COMBO_TIMEOUT) {
       this.comboCount = 0;
       this.blackHoleReady = false;
+      this.notifyCombo();
     }
   }
 
   consumeBlackHole(): void {
     this.blackHoleReady = false;
     this.comboCount = 0;
+    this.notifyCombo();
   }
 
   getMultiplier(): number {
