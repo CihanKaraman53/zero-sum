@@ -27,6 +27,12 @@ export class BootScene extends Phaser.Scene {
     // Load ball textures
     this.load.image('positive_ball', 'assets/positive.png');
     this.load.image('negative_ball', 'assets/negative.png');
+    this.load.image('x2_ball', 'assets/x2_ball.png');
+    this.load.image('blast_ball', 'assets/blast_ball.png');
+    this.load.image('slice_ball', 'assets/slice_ball.png');
+    this.load.image('dice_ball', 'assets/dice_ball.png');
+    this.load.image('magnet_ball', 'assets/magnet_ball.png');
+    this.load.image('ghost_ball', 'assets/ghost_ball.png');
     
     // Load launcher texture
     this.load.image('launcher', 'assets/launcher.png');

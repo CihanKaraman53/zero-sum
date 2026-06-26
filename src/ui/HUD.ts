@@ -43,7 +43,8 @@ export class HUD {
   }
 
   update(): void {
-    // No-op: HUD updates are now fully event-driven to maximize performance
+    const lvlNum = this.levelManager.currentLevelIndex + 1;
+    this.levelText.setText(`LEVEL ${lvlNum}`);
   }
 
   private updateScore(score: number, highScore: number): void {
@@ -78,7 +79,8 @@ export class HUD {
   }
 
   private createTopLeft(): void {
-    this.levelText = this.scene.add.text(10, 10, 'LEVEL 1', {
+    const lvlNum = this.levelManager.currentLevelIndex + 1;
+    this.levelText = this.scene.add.text(10, 10, `LEVEL ${lvlNum}`, {
       fontFamily: '"Orbitron", monospace',
       fontSize: '24px',
       color: '#00ff88',
@@ -102,30 +104,44 @@ export class HUD {
   private createTitle(): void {
     const cx = GAME_WIDTH / 2;
 
-    this.titleGlow = this.scene.add.text(cx, 30, 'ZERO SUM DROP', {
+    const titleContainer = this.scene.add.container(cx, 30).setDepth(30);
+
+    const zeroSumText = this.scene.add.text(-45, 0, 'ZERO SUM', {
       fontFamily: '"Orbitron", monospace',
       fontSize: '32px',
-      color: '#ffffff',
+      color: '#ff3388',
       fontStyle: 'italic bold',
-    }).setOrigin(0.5).setDepth(30);
+    }).setOrigin(0.5);
 
-    // Cheap glitch/neon effect with multiple texts
-    const t1 = this.scene.add.text(cx - 2, 30, 'ZERO SUM DROP', {
+    const dropText = this.scene.add.text(75, 0, 'DROP', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '32px',
+      color: '#00ff88',
+      fontStyle: 'italic bold',
+    }).setOrigin(0.5);
+
+    const zeroSumShadow1 = this.scene.add.text(-47, 0, 'ZERO SUM', {
       fontFamily: '"Orbitron", monospace', fontSize: '32px', color: '#ff00ff', fontStyle: 'italic bold',
-    }).setOrigin(0.5).setDepth(29).setAlpha(0.5);
+    }).setOrigin(0.5).setAlpha(0.4).setDepth(-1);
 
-    const t2 = this.scene.add.text(cx + 2, 30, 'ZERO SUM DROP', {
+    const zeroSumShadow2 = this.scene.add.text(-43, 0, 'ZERO SUM', {
       fontFamily: '"Orbitron", monospace', fontSize: '32px', color: '#00ffff', fontStyle: 'italic bold',
-    }).setOrigin(0.5).setDepth(29).setAlpha(0.5);
+    }).setOrigin(0.5).setAlpha(0.4).setDepth(-1);
 
-    this.scene.tweens.add({
-      targets: [t1, t2],
-      alpha: 0.1,
-      duration: 100,
-      yoyo: true,
-      repeat: -1,
-      repeatDelay: Math.random() * 2000 + 1000
-    });
+    const dropShadow1 = this.scene.add.text(73, 0, 'DROP', {
+      fontFamily: '"Orbitron", monospace', fontSize: '32px', color: '#ff00ff', fontStyle: 'italic bold',
+    }).setOrigin(0.5).setAlpha(0.4).setDepth(-1);
+
+    const dropShadow2 = this.scene.add.text(77, 0, 'DROP', {
+      fontFamily: '"Orbitron", monospace', fontSize: '32px', color: '#00ffff', fontStyle: 'italic bold',
+    }).setOrigin(0.5).setAlpha(0.4).setDepth(-1);
+
+    titleContainer.add([
+      zeroSumShadow1, zeroSumShadow2, zeroSumText,
+      dropShadow1, dropShadow2, dropText
+    ]);
+
+    this.titleGlow = zeroSumText; 
   }
 
   private createComboTracker(): void {

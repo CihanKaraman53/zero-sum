@@ -5,7 +5,7 @@ import {
   CAT_BALL, CAT_WALL, CONTAINER_BOTTOM
 } from '../core/Constants';
 
-export type BallSpecial = 'multiply' | 'divide' | null;
+export type BallSpecial = 'multiply' | 'divide' | 'blast' | 'slice' | 'chance' | null;
 
 /**
  * JellyBall — the core game entity.
@@ -247,13 +247,28 @@ export class JellyBall {
     if (this.special === 'multiply') {
       color = SPECIAL_COLOR;
       colorStr = SPECIAL_COLOR_STR;
-      this.sprite.setTexture('positive_ball');
-      this.sprite.setTint(SPECIAL_COLOR);
+      this.sprite.setTexture('x2_ball');
+      this.sprite.clearTint();
     } else if (this.special === 'divide') {
       color = SPECIAL_COLOR;
       colorStr = SPECIAL_COLOR_STR;
       this.sprite.setTexture('positive_ball');
       this.sprite.setTint(SPECIAL_COLOR);
+    } else if (this.special === 'blast') {
+      color = 0xff6600;
+      colorStr = '#ff6600';
+      this.sprite.setTexture('blast_ball');
+      this.sprite.clearTint();
+    } else if (this.special === 'slice') {
+      color = 0xff0044;
+      colorStr = '#ff0044';
+      this.sprite.setTexture('slice_ball');
+      this.sprite.clearTint();
+    } else if (this.special === 'chance') {
+      color = 0xaa00ff;
+      colorStr = '#aa00ff';
+      this.sprite.setTexture('dice_ball');
+      this.sprite.clearTint();
     } else if (this.sign > 0) {
       color = POSITIVE_COLOR;
       colorStr = POSITIVE_COLOR_STR;
@@ -291,6 +306,8 @@ export class JellyBall {
     } else if (this.special === 'divide') {
       this.label.setText('÷2');
       this.label.setFontSize(r > 20 ? '20px' : '16px');
+    } else if (this.special === 'blast' || this.special === 'slice' || this.special === 'chance') {
+      this.label.setText('');
     } else {
       const prefix = this.sign > 0 ? '+' : '';
       this.label.setText(`${prefix}${this.value}`);
@@ -315,6 +332,4 @@ export class JellyBall {
       this.crownGfx.setVisible(false);
     }
   }
-
-
 }

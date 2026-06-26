@@ -12,7 +12,7 @@ const config: Phaser.Types.Core.GameConfig = {
   parent: 'game-container',
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    autoCenter: Phaser.Scale.NO_CENTER,
   },
   physics: {
     default: 'matter',

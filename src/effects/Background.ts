@@ -16,6 +16,10 @@ export class Background {
   private overflowGfx: Phaser.GameObjects.Graphics;
   private vignetteGfx: Phaser.GameObjects.Graphics;
   private gridOffset: number = 0;
+  
+  public currentLeft: number = CONTAINER_LEFT;
+  public currentRight: number = CONTAINER_RIGHT;
+  public currentBottom: number = CONTAINER_BOTTOM;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -48,6 +52,14 @@ export class Background {
     this.drawOverflowLine(time);
   }
 
+  public updateContainerBounds(left: number, right: number, bottom: number): void {
+    this.currentLeft = left;
+    this.currentRight = right;
+    this.currentBottom = bottom;
+    this.drawBackground();
+    this.drawWalls();
+  }
+
   private drawBackground(): void {
     // Dark gradient background
     this.bgGfx.clear();
@@ -63,9 +75,15 @@ export class Background {
       this.bgGfx.fillRect(0, i * h, GAME_WIDTH, h + 1);
     }
 
-    // Container interior (darker)
-    this.bgGfx.fillStyle(0x050510, 0.8);
-    this.bgGfx.fillRect(CONTAINER_LEFT, CONTAINER_TOP, CONTAINER_RIGHT - CONTAINER_LEFT, CONTAINER_BOTTOM - CONTAINER_TOP);
+    // Container interior (darker focus zone + subtle neon grid shadow)
+    this.bgGfx.fillStyle(0x060515, 0.9);
+    this.bgGfx.fillRect(this.currentLeft, CONTAINER_TOP, this.currentRight - this.currentLeft, this.currentBottom - CONTAINER_TOP);
+
+    // Subtle side shadows inside the tube
+    this.bgGfx.fillStyle(0x0c0b24, 0.4);
+    const shadowW = Math.min(30, (this.currentRight - this.currentLeft) / 2);
+    this.bgGfx.fillRect(this.currentLeft, CONTAINER_TOP, shadowW, this.currentBottom - CONTAINER_TOP);
+    this.bgGfx.fillRect(this.currentRight - shadowW, CONTAINER_TOP, shadowW, this.currentBottom - CONTAINER_TOP);
   }
 
   private drawGrid(): void {
@@ -76,18 +94,18 @@ export class Background {
     const offset = this.gridOffset;
 
     // Vertical lines
-    for (let x = CONTAINER_LEFT; x <= CONTAINER_RIGHT; x += spacing) {
+    for (let x = this.currentLeft; x <= this.currentRight; x += spacing) {
       this.gridGfx.beginPath();
       this.gridGfx.moveTo(x, CONTAINER_TOP);
-      this.gridGfx.lineTo(x, CONTAINER_BOTTOM);
+      this.gridGfx.lineTo(x, this.currentBottom);
       this.gridGfx.strokePath();
     }
 
     // Horizontal lines (with scroll)
-    for (let y = CONTAINER_TOP + offset; y <= CONTAINER_BOTTOM; y += spacing) {
+    for (let y = CONTAINER_TOP + offset; y <= this.currentBottom; y += spacing) {
       this.gridGfx.beginPath();
-      this.gridGfx.moveTo(CONTAINER_LEFT, y);
-      this.gridGfx.lineTo(CONTAINER_RIGHT, y);
+      this.gridGfx.moveTo(this.currentLeft, y);
+      this.gridGfx.lineTo(this.currentRight, y);
       this.gridGfx.strokePath();
     }
   }
@@ -95,55 +113,91 @@ export class Background {
   private drawWalls(): void {
     this.wallGfx.clear();
 
-    // Left wall
-    this.wallGfx.lineStyle(3, CONTAINER_BORDER_COLOR, 0.8);
+    // 1. Left Neon Laser Beam (thick glow + bright white core)
+    this.wallGfx.lineStyle(8, CONTAINER_BORDER_COLOR, 0.25);
     this.wallGfx.beginPath();
-    this.wallGfx.moveTo(CONTAINER_LEFT, CONTAINER_TOP - 10);
-    this.wallGfx.lineTo(CONTAINER_LEFT, CONTAINER_BOTTOM);
+    this.wallGfx.moveTo(this.currentLeft, CONTAINER_TOP);
+    this.wallGfx.lineTo(this.currentLeft, this.currentBottom);
     this.wallGfx.strokePath();
 
-    // Right wall
+    this.wallGfx.lineStyle(3, 0xffffff, 0.95);
     this.wallGfx.beginPath();
-    this.wallGfx.moveTo(CONTAINER_RIGHT, CONTAINER_TOP - 10);
-    this.wallGfx.lineTo(CONTAINER_RIGHT, CONTAINER_BOTTOM);
+    this.wallGfx.moveTo(this.currentLeft, CONTAINER_TOP);
+    this.wallGfx.lineTo(this.currentLeft, this.currentBottom);
     this.wallGfx.strokePath();
 
-    // Bottom wall
+    // 2. Right Neon Laser Beam (thick glow + bright white core)
+    this.wallGfx.lineStyle(8, CONTAINER_BORDER_COLOR, 0.25);
     this.wallGfx.beginPath();
-    this.wallGfx.moveTo(CONTAINER_LEFT, CONTAINER_BOTTOM);
-    this.wallGfx.lineTo(CONTAINER_RIGHT, CONTAINER_BOTTOM);
+    this.wallGfx.moveTo(this.currentRight, CONTAINER_TOP);
+    this.wallGfx.lineTo(this.currentRight, this.currentBottom);
+    this.wallGfx.strokePath();
+
+    this.wallGfx.lineStyle(3, 0xffffff, 0.95);
+    this.wallGfx.beginPath();
+    this.wallGfx.moveTo(this.currentRight, CONTAINER_TOP);
+    this.wallGfx.lineTo(this.currentRight, this.currentBottom);
+    this.wallGfx.strokePath();
+
+    // 3. Bottom wall
+    this.wallGfx.lineStyle(4, CONTAINER_BORDER_COLOR, 0.8);
+    this.wallGfx.beginPath();
+    this.wallGfx.moveTo(this.currentLeft, this.currentBottom);
+    this.wallGfx.lineTo(this.currentRight, this.currentBottom);
     this.wallGfx.strokePath();
 
     // Outer glow effect on walls
-    this.wallGfx.lineStyle(6, CONTAINER_BORDER_COLOR, 0.15);
+    this.wallGfx.lineStyle(10, CONTAINER_BORDER_COLOR, 0.1);
     this.wallGfx.beginPath();
-    this.wallGfx.moveTo(CONTAINER_LEFT, CONTAINER_TOP - 10);
-    this.wallGfx.lineTo(CONTAINER_LEFT, CONTAINER_BOTTOM);
-    this.wallGfx.lineTo(CONTAINER_RIGHT, CONTAINER_BOTTOM);
-    this.wallGfx.lineTo(CONTAINER_RIGHT, CONTAINER_TOP - 10);
+    this.wallGfx.moveTo(this.currentLeft, CONTAINER_TOP - 10);
+    this.wallGfx.lineTo(this.currentLeft, this.currentBottom);
+    this.wallGfx.lineTo(this.currentRight, this.currentBottom);
+    this.wallGfx.lineTo(this.currentRight, CONTAINER_TOP - 10);
     this.wallGfx.strokePath();
+
+    // 4. Hydraulic Anchors (Top-Left, Bottom-Left, Top-Right, Bottom-Right)
+    const anchorW = 20;
+    const anchorH = 12;
+    this.wallGfx.fillStyle(0x1a2135, 1);
+    this.wallGfx.lineStyle(2, 0x00ccff, 1);
+
+    // Top-Left
+    this.wallGfx.fillRoundedRect(this.currentLeft - anchorW / 2, CONTAINER_TOP - anchorH / 2, anchorW, anchorH, 2);
+    this.wallGfx.strokeRoundedRect(this.currentLeft - anchorW / 2, CONTAINER_TOP - anchorH / 2, anchorW, anchorH, 2);
+
+    // Bottom-Left
+    this.wallGfx.fillRoundedRect(this.currentLeft - anchorW / 2, this.currentBottom - anchorH / 2, anchorW, anchorH, 2);
+    this.wallGfx.strokeRoundedRect(this.currentLeft - anchorW / 2, this.currentBottom - anchorH / 2, anchorW, anchorH, 2);
+
+    // Top-Right
+    this.wallGfx.fillRoundedRect(this.currentRight - anchorW / 2, CONTAINER_TOP - anchorH / 2, anchorW, anchorH, 2);
+    this.wallGfx.strokeRoundedRect(this.currentRight - anchorW / 2, CONTAINER_TOP - anchorH / 2, anchorW, anchorH, 2);
+
+    // Bottom-Right
+    this.wallGfx.fillRoundedRect(this.currentRight - anchorW / 2, this.currentBottom - anchorH / 2, anchorW, anchorH, 2);
+    this.wallGfx.strokeRoundedRect(this.currentRight - anchorW / 2, this.currentBottom - anchorH / 2, anchorW, anchorH, 2);
   }
 
   private drawOverflowLine(time: number): void {
     this.overflowGfx.clear();
     const alpha = 0.4 + 0.3 * Math.sin(time * 0.003);
+    const overflowY = (this.scene as any).dynamicOverflowY ?? OVERFLOW_Y;
 
     // Main line
     this.overflowGfx.lineStyle(2, OVERFLOW_COLOR, alpha);
     this.overflowGfx.beginPath();
-    this.overflowGfx.moveTo(CONTAINER_LEFT + 2, OVERFLOW_Y);
-    this.overflowGfx.lineTo(CONTAINER_RIGHT - 2, OVERFLOW_Y);
+    this.overflowGfx.moveTo(this.currentLeft + 2, overflowY);
+    this.overflowGfx.lineTo(this.currentRight - 2, overflowY);
     this.overflowGfx.strokePath();
 
     // "Game Over" text label
-    // (We just draw dashes to indicate the danger zone)
     this.overflowGfx.lineStyle(1, OVERFLOW_COLOR, alpha * 0.5);
     const dashLen = 6;
     const gap = 8;
-    for (let x = CONTAINER_LEFT + 5; x < CONTAINER_RIGHT - 5; x += dashLen + gap) {
+    for (let x = this.currentLeft + 5; x < this.currentRight - 5; x += dashLen + gap) {
       this.overflowGfx.beginPath();
-      this.overflowGfx.moveTo(x, OVERFLOW_Y - 3);
-      this.overflowGfx.lineTo(x + dashLen, OVERFLOW_Y - 3);
+      this.overflowGfx.moveTo(x, overflowY - 3);
+      this.overflowGfx.lineTo(x + dashLen, overflowY - 3);
       this.overflowGfx.strokePath();
     }
   }

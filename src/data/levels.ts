@@ -23,9 +23,9 @@ export const LEVELS: LevelConfig[] = [
   {
     id: 1,
     name: 'Genesis Matrix',
-    type: 'score_attack',
-    targetScore: 500,
-    spawnPool: [2, -2],
+    type: 'board_clear',
+    clearCount: 9999,
+    spawnPool: [2],
     specialChance: 0,
     gravity: 1.0,
     dropSpeed: 1.2,
@@ -34,57 +34,46 @@ export const LEVELS: LevelConfig[] = [
   {
     id: 2,
     name: 'The Core Reaction',
-    type: 'fusion_goal',
-    fusionTarget: 8,
-    spawnPool: [2, -2, 4],
+    type: 'board_clear',
+    clearCount: 9999,
+    spawnPool: [2],
     specialChance: 0,
     gravity: 1.0,
     dropSpeed: 1.4,
-    description: '+8 topunu oluştur! Alttaki topları birleştirmeyi dene.',
-    preplacedBalls: [
-      { value: 2, x: 180, y: 780 },
-      { value: 2, x: 240, y: 780 },
-      { value: 2, x: 300, y: 780 }
-    ]
+    description: '+16 topunu negatif -4 ile parçala! Tüm topları yok et.'
   },
   {
     id: 3,
     name: 'Zero Sum Academy',
-    type: 'board_clear',
-    clearCount: 4,
-    spawnPool: [-2, -4],
+    type: 'score_attack',
+    targetScore: 1000,
+    spawnPool: [2, 4, 8, -2, -4],
     specialChance: 0,
     gravity: 1.0,
     dropSpeed: 1.4,
-    description: 'Donmuş pozitif $+4$ bloklarını negatif toplarla yok et!',
-    preplacedBalls: [
-      { value: 4, x: 120, y: 780, frozen: true },
-      { value: 4, x: 200, y: 780, frozen: true },
-      { value: 4, x: 280, y: 780, frozen: true },
-      { value: 4, x: 360, y: 780, frozen: true }
-    ]
+    description: '1000 puan hedefine ulaşarak seviyeyi tamamla! Kombo ve bölünmeleri kullan.'
   },
   {
     id: 4,
-    name: 'Spinning Gates',
-    type: 'score_attack',
-    targetScore: 1500,
-    spawnPool: [2, -2, 4, -4],
-    specialChance: 0,
+    name: 'The X2 Multiplier',
+    type: 'fusion_goal',
+    fusionTarget: 64,
+    spawnPool: [2, 4, 8, 16, -2, -4, -8],
+    specialChance: 0.1,
     gravity: 1.1,
     dropSpeed: 1.5,
-    description: 'Dönen engelleri aşarak 1500 puana ulaş.'
+    description: '+64 değerindeki topu oluşturarak seviyeyi tamamla! X2 katlayıcı topunu kullan.'
   },
   {
     id: 5,
     name: 'Bubbled Ascent',
-    type: 'fusion_goal',
-    fusionTarget: 16,
+    type: 'score_attack',
+    targetScore: 2000,
     spawnPool: [2, -2, 4, -4],
     specialChance: 0.05,
     gravity: 1.1,
     dropSpeed: 1.5,
-    description: '+16 değerindeki topu birleştirerek fırlatıcıyı şarj et!'
+    description: '2000 puan hedefine ulaşarak seviyeyi tamamla!'
   },
   {
     id: 6,

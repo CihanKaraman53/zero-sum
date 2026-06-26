@@ -69,7 +69,19 @@ export class NextQueue {
 
       sprite.setVisible(true);
 
-      if (item.special) {
+      if (item.special === 'multiply') {
+        sprite.setTexture('x2_ball');
+        sprite.clearTint();
+      } else if (item.special === 'blast') {
+        sprite.setTexture('blast_ball');
+        sprite.clearTint();
+      } else if (item.special === 'slice') {
+        sprite.setTexture('slice_ball');
+        sprite.clearTint();
+      } else if (item.special === 'chance') {
+        sprite.setTexture('dice_ball');
+        sprite.clearTint();
+      } else if (item.special) {
         sprite.setTexture('positive_ball');
         sprite.setTint(0x00ccff);
       } else if (item.value > 0) {
@@ -87,6 +99,8 @@ export class NextQueue {
         label.setText('×2');
       } else if (item.special === 'divide') {
         label.setText('÷2');
+      } else if (item.special === 'blast' || item.special === 'slice' || item.special === 'chance') {
+        label.setText('');
       } else {
         const prefix = item.value > 0 ? '+' : '';
         label.setText(`${prefix}${item.value}`);

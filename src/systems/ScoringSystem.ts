@@ -33,21 +33,24 @@ export class ScoringSystem {
   }
 
   addMerge(absValue: number): number {
-    const points = absValue * SCORE_MERGE_BASE * this.comboMultiplier;
+    const isLevel3 = (this.scene as any).levelManager?.currentLevelIndex === 2;
+    const points = isLevel3 ? 100 : (absValue * SCORE_MERGE_BASE * this.comboMultiplier);
     this.score += points;
     this.checkHighScore();
     return points;
   }
 
   addZeroSum(absValue: number): number {
-    const points = absValue * SCORE_ZEROSUM_BASE * this.comboMultiplier;
+    const isLevel3 = (this.scene as any).levelManager?.currentLevelIndex === 2;
+    const points = isLevel3 ? 500 : (absValue * SCORE_ZEROSUM_BASE * this.comboMultiplier);
     this.score += points;
     this.checkHighScore();
     return points;
   }
 
   addShrink(smallAbsValue: number): number {
-    const points = smallAbsValue * SCORE_SHRINK_BASE * this.comboMultiplier;
+    const isLevel3 = (this.scene as any).levelManager?.currentLevelIndex === 2;
+    const points = isLevel3 ? 250 : (smallAbsValue * SCORE_SHRINK_BASE * this.comboMultiplier);
     this.score += points;
     this.checkHighScore();
     return points;

@@ -24,9 +24,16 @@ export class Launcher {
   lastDropTime: number = 0;
   isPlayerControlled: boolean = false;
 
-  // Current ball info for preview
+  minX: number = LAUNCHER_MIN_X;
+  maxX: number = LAUNCHER_MAX_X;
   private previewValue: number = 2;
   private previewSpecial: string | null = null;
+
+  updateBounds(minX: number, maxX: number): void {
+    this.minX = minX;
+    this.maxX = maxX;
+    this.x = Phaser.Math.Clamp(this.x, this.minX, this.maxX);
+  }
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -144,15 +151,15 @@ export class Launcher {
     // Movement
     if (pointerX !== null && this.isPlayerControlled) {
       // Player is controlling — follow pointer X
-      this.x = Phaser.Math.Clamp(pointerX, LAUNCHER_MIN_X, LAUNCHER_MAX_X);
+      this.x = Phaser.Math.Clamp(pointerX, this.minX, this.maxX);
     } else {
       // Auto-sway
       this.x += this.direction * this.speed;
-      if (this.x >= LAUNCHER_MAX_X) {
-        this.x = LAUNCHER_MAX_X;
+      if (this.x >= this.maxX) {
+        this.x = this.maxX;
         this.direction = -1;
-      } else if (this.x <= LAUNCHER_MIN_X) {
-        this.x = LAUNCHER_MIN_X;
+      } else if (this.x <= this.minX) {
+        this.x = this.minX;
         this.direction = 1;
       }
     }
@@ -198,7 +205,19 @@ export class Launcher {
 
 
   private drawPreview(): void {
-    if (this.previewSpecial) {
+    if (this.previewSpecial === 'multiply') {
+      this.ballPreview.setTexture('x2_ball');
+      this.ballPreview.clearTint();
+    } else if (this.previewSpecial === 'blast') {
+      this.ballPreview.setTexture('blast_ball');
+      this.ballPreview.clearTint();
+    } else if (this.previewSpecial === 'slice') {
+      this.ballPreview.setTexture('slice_ball');
+      this.ballPreview.clearTint();
+    } else if (this.previewSpecial === 'chance') {
+      this.ballPreview.setTexture('dice_ball');
+      this.ballPreview.clearTint();
+    } else if (this.previewSpecial) {
       this.ballPreview.setTexture('positive_ball');
       this.ballPreview.setTint(0x00ccff);
     } else if (this.previewValue > 0) {
@@ -209,14 +228,16 @@ export class Launcher {
       this.ballPreview.clearTint();
     }
 
-    // Scale preview ball to match its actual physical dropped size
-    const radius = this.previewSpecial ? 20 : getBallRadius(this.previewValue);
+    // All preview balls appear uniform in size inside the launcher housing
+    const radius = 34;
     this.ballPreview.setDisplaySize(radius * 2, radius * 2);
 
     if (this.previewSpecial === 'multiply') {
       this.ballLabel.setText('×2');
     } else if (this.previewSpecial === 'divide') {
       this.ballLabel.setText('÷2');
+    } else if (this.previewSpecial === 'blast' || this.previewSpecial === 'slice' || this.previewSpecial === 'chance') {
+      this.ballLabel.setText('');
     } else {
       const prefix = this.previewValue > 0 ? '+' : '';
       this.ballLabel.setText(`${prefix}${this.previewValue}`);

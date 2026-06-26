@@ -52,13 +52,22 @@ export class OverflowSystem {
   update(delta: number): void {
     const activeBalls = this.ballPool.getActiveItems();
     let hasOverflow = false;
+    const overflowY = (this.scene as any).dynamicOverflowY ?? OVERFLOW_Y;
+
+    // Reposition warnings relative to dynamic overflow line
+    if (this.warningText) {
+      this.warningText.setY(overflowY - 40);
+    }
+    if (this.countdownText) {
+      this.countdownText.setY(overflowY - 10);
+    }
 
     // Check if any ball (that has settled/isn't currently falling fast from launcher) is above threshold
     for (const ball of activeBalls) {
       if (!ball.active || !ball.body) continue;
 
       // Ball center is above the red line, and it's settled (very low velocity)
-      if (ball.body.position.y - ball.radius < OVERFLOW_Y && Math.abs(ball.body.velocity.y) < 0.5 && Math.abs(ball.body.velocity.x) < 0.5) {
+      if (ball.body.position.y - ball.radius < overflowY && Math.abs(ball.body.velocity.y) < 0.5 && Math.abs(ball.body.velocity.x) < 0.5) {
         hasOverflow = true;
         break; // One is enough
       }
