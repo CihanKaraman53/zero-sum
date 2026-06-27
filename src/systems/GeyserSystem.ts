@@ -21,29 +21,24 @@ export class GeyserSystem {
   private gfx: Phaser.GameObjects.Graphics;
 
   private state: GeyserState = 'SILENCE';
-  private timer: number = 0; // ms in current state
+  private timer: number = 0;
 
-  // Timings in milliseconds
-  private readonly DURATION_SILENCE = 5000;
+  // Storm (launch) starts at 18s: 16s calm → 2s warning → 2s storm
+  private readonly DURATION_SILENCE = 16000;
   private readonly DURATION_WARNING = 2000;
   private readonly DURATION_STORM = 2000;
 
-  // Configuration
-  private readonly columnWidth = 120;
-  private readonly maxPushHeight = 180; // push balls higher up the screen
+  private readonly columnWidth = 160;
 
-  // Particles
   private particles: WindParticle[] = [];
-  private readonly maxParticles = 150;
+  private readonly maxParticles = 180;
+  private windPhase = 0;
 
   constructor(scene: Phaser.Scene, ballPool: ObjectPool<JellyBall>) {
     this.scene = scene;
     this.ballPool = ballPool;
+    this.gfx = scene.add.graphics().setDepth(15);
 
-    // Create graphics layer for rendering air streams (vents themselves are now invisible)
-    this.gfx = scene.add.graphics().setDepth(5);
-
-    // Pre-allocate particles to avoid GC churn
     for (let i = 0; i < this.maxParticles; i++) {
       this.particles.push({
         x: 0,
@@ -62,12 +57,21 @@ export class GeyserSystem {
     this.gfx.setVisible(visible);
     if (!visible) {
       this.gfx.clear();
-      this.particles.forEach(p => p.alpha = 0);
+      this.particles.forEach(p => { p.alpha = 0; });
     }
+  }
+
+  reset(): void {
+    this.state = 'SILENCE';
+    this.timer = 0;
+    this.windPhase = 0;
+    this.gfx.clear();
+    this.particles.forEach(p => { p.alpha = 0; });
   }
 
   update(time: number, delta: number): void {
     this.timer += delta;
+    this.windPhase += delta * 0.004;
 
     switch (this.state) {
       case 'SILENCE':
@@ -92,55 +96,47 @@ export class GeyserSystem {
 
     this.applyAirForces();
     this.updateParticles(delta);
-    this.draw();
+    this.draw(time);
   }
 
   private applyAirForces(): void {
     if (this.state === 'SILENCE') return;
 
-    // Access dynamic container bounds from the GameScene
-    const containerLeft = (this.scene as any).containerLeft;
-    const containerRight = (this.scene as any).containerRight;
-    const containerBottom = (this.scene as any).containerBottom;
+    const containerLeft = (this.scene as any).containerLeft as number;
+    const containerRight = (this.scene as any).containerRight as number;
+    const containerBottom = (this.scene as any).containerBottom as number;
+    const containerTop = (this.scene as any).containerTop as number;
 
-    const activeBalls = this.ballPool.getActiveItems();
+    const leftBandRight = containerLeft + this.columnWidth;
+    const rightBandLeft = containerRight - this.columnWidth;
 
-    activeBalls.forEach(ball => {
-      if (ball.active && ball.body) {
-        const bx = ball.body.position.x;
-        const by = ball.body.position.y;
+    for (const ball of this.ballPool.getActiveItems()) {
+      if (!ball.active || !ball.body || ball.frozen) continue;
 
-        // Check bounds dynamically
-        const inLeftCol = bx >= containerLeft && bx <= containerLeft + this.columnWidth;
-        const inRightCol = bx >= containerRight - this.columnWidth && bx <= containerRight;
-        
-        // Push if inside the container height range (covering the entire left/right sides)
-        const inHeight = by > (this.scene as any).containerTop && by < containerBottom;
+      const bx = ball.body.position.x;
+      const by = ball.body.position.y;
+      const r = ball.radius;
 
-        if ((inLeftCol || inRightCol) && inHeight) {
-          const currentVel = ball.body.velocity;
+      const inHeight = by + r > containerTop && by - r < containerBottom;
+      if (!inHeight) continue;
 
-          if (this.state === 'WARNING') {
-            // Vibrate/shake slightly in place without drifting sideways or towards the center
-            const vx = (Math.random() - 0.5) * 0.8;
-            const vy = (Math.random() - 0.5) * 0.8;
-            this.scene.matter.body.setVelocity(ball.body, { x: vx, y: vy });
-            ball.playSquash(); // Wobble feedback
-          } else if (this.state === 'STORM') {
-            // Push towards center slightly to avoid scraping walls: positive vx for left column, negative vx for right column
-            const pushDir = inLeftCol ? 1 : -1;
-            
-            // Instantly apply maximum upward velocity for an explosive, instant blast!
-            const targetVy = -25.0;
-            
-            // Slight inward bias + tiny random spread to go straight up and scatter nicely
-            const targetVx = pushDir * 0.8 + (Math.random() - 0.5) * 1.0;
-            
-            this.scene.matter.body.setVelocity(ball.body, { x: targetVx, y: targetVy });
-          }
-        }
+      const inLeftCol = bx + r > containerLeft && bx - r < leftBandRight;
+      const inRightCol = bx - r < containerRight && bx + r > rightBandLeft;
+
+      if (!inLeftCol && !inRightCol) continue;
+
+      if (this.state === 'WARNING') {
+        const vx = (Math.random() - 0.5) * 0.8;
+        const vy = (Math.random() - 0.5) * 0.8;
+        this.scene.matter.body.setVelocity(ball.body, { x: vx, y: vy });
+        ball.playSquash();
+      } else if (this.state === 'STORM') {
+        const pushDir = inLeftCol && !inRightCol ? 1 : inRightCol && !inLeftCol ? -1 : bx < (containerLeft + containerRight) / 2 ? 1 : -1;
+        const targetVy = -25.0;
+        const targetVx = pushDir * 0.8 + (Math.random() - 0.5) * 1.0;
+        this.scene.matter.body.setVelocity(ball.body, { x: targetVx, y: targetVy });
       }
-    });
+    }
   }
 
   private updateParticles(delta: number): void {
@@ -149,42 +145,40 @@ export class GeyserSystem {
     const containerBottom = (this.scene as any).containerBottom;
 
     if (this.state !== 'SILENCE') {
-      const spawnChance = this.state === 'STORM' ? 0.4 : 0.15;
+      const spawnChance = this.state === 'STORM' ? 0.55 : 0.22;
       this.particles.forEach(p => {
         if (p.alpha <= 0 && Math.random() < spawnChance) {
           const isLeft = Math.random() < 0.5;
           const minX = isLeft ? containerLeft + 5 : containerRight - this.columnWidth + 5;
           const maxX = isLeft ? containerLeft + this.columnWidth - 5 : containerRight - 5;
-          
+
           p.x = Phaser.Math.Between(minX, maxX);
           p.y = containerBottom - 10;
-          p.alpha = 0.6 + Math.random() * 0.4;
-          
+          p.alpha = 0.55 + Math.random() * 0.45;
+
           if (this.state === 'STORM') {
-            p.vy = -3.5 - Math.random() * 2.5;
-            p.isStreamer = Math.random() < 0.6;
-            p.length = p.isStreamer ? 15 + Math.random() * 20 : 0;
-            p.size = p.isStreamer ? 2 : 2 + Math.random() * 3;
-            p.color = 0xffffff;
+            p.vy = -4.5 - Math.random() * 3;
+            p.isStreamer = Math.random() < 0.75;
+            p.length = p.isStreamer ? 22 + Math.random() * 35 : 0;
+            p.size = p.isStreamer ? 2.5 : 2 + Math.random() * 2.5;
+            p.color = 0xe8f8ff;
           } else {
-            p.vy = -0.8 - Math.random() * 0.6;
-            p.isStreamer = false;
-            p.length = 0;
+            p.vy = -1.2 - Math.random() * 0.8;
+            p.isStreamer = Math.random() < 0.35;
+            p.length = p.isStreamer ? 10 + Math.random() * 14 : 0;
             p.size = 2 + Math.random() * 2;
-            p.color = 0x00ccff;
+            p.color = 0x88eeff;
           }
         }
       });
     }
 
-    // Slower decay so particles reach the top of the container
-    const decay = this.state === 'STORM' ? delta * 0.0004 : delta * 0.0008;
+    const decay = this.state === 'STORM' ? delta * 0.00035 : delta * 0.0007;
     this.particles.forEach(p => {
       if (p.alpha > 0) {
         p.y += p.vy * (delta / 16.666);
         p.alpha -= decay;
 
-        // Clean up when reaching the top or fading out
         if (p.y < (this.scene as any).containerTop || p.alpha <= 0) {
           p.alpha = 0;
         }
@@ -192,27 +186,67 @@ export class GeyserSystem {
     });
   }
 
-  private draw(): void {
+  /** Visible side-vent air columns + rising streaks (no audio). */
+  private draw(time: number): void {
     this.gfx.clear();
 
-    // Vents are now completely invisible (grate drawing code removed per requirements)
+    if (this.state === 'SILENCE') return;
 
-    // Draw active wind particles and streamers
+    const containerLeft = (this.scene as any).containerLeft as number;
+    const containerRight = (this.scene as any).containerRight as number;
+    const containerBottom = (this.scene as any).containerBottom as number;
+    const containerTop = (this.scene as any).containerTop as number;
+    const ventHeight = containerBottom - containerTop;
+    const intensity = this.state === 'STORM' ? 1 : 0.45 + 0.25 * Math.sin(this.windPhase * 3);
+
+    this.drawVentColumn(containerLeft, containerLeft + this.columnWidth, containerTop, containerBottom, ventHeight, intensity, time);
+    this.drawVentColumn(containerRight - this.columnWidth, containerRight, containerTop, containerBottom, ventHeight, intensity, time);
+
     this.particles.forEach(p => {
-      if (p.alpha > 0) {
-        if (p.isStreamer) {
-          this.gfx.lineStyle(p.size, p.color, p.alpha);
-          this.gfx.lineBetween(p.x, p.y, p.x, p.y - p.length);
-        } else {
-          this.gfx.fillStyle(p.color, p.alpha);
-          this.gfx.fillCircle(p.x, p.y, p.size);
-          if (this.state === 'STORM') {
-            this.gfx.lineStyle(1, 0x00ccff, p.alpha * 0.5);
-            this.gfx.strokeCircle(p.x, p.y, p.size + 1.5);
-          }
-        }
+      if (p.alpha <= 0) return;
+      if (p.isStreamer) {
+        this.gfx.lineStyle(p.size, p.color, p.alpha * 0.85);
+        this.gfx.lineBetween(p.x, p.y, p.x + Math.sin(p.y * 0.05) * 3, p.y - p.length);
+      } else {
+        this.gfx.fillStyle(p.color, p.alpha * 0.7);
+        this.gfx.fillCircle(p.x, p.y, p.size);
       }
     });
+  }
+
+  private drawVentColumn(
+    x0: number, x1: number,
+    top: number, bottom: number,
+    ventHeight: number,
+    intensity: number,
+    time: number
+  ): void {
+    const cx = (x0 + x1) / 2;
+    const colW = x1 - x0;
+    const streakCount = this.state === 'STORM' ? 9 : 5;
+
+    // Soft air glow column
+    this.gfx.fillStyle(0x00ccff, 0.04 * intensity);
+    this.gfx.fillRect(x0 + 4, top, colW - 8, ventHeight);
+
+    // Rising wind streaks
+    for (let i = 0; i < streakCount; i++) {
+      const phase = (time * 0.002 + i * 0.17) % 1;
+      const y = bottom - phase * ventHeight;
+      const sway = Math.sin(time * 0.004 + i) * 6;
+      const streakH = this.state === 'STORM' ? 28 + (i % 3) * 10 : 14 + (i % 2) * 8;
+      const alpha = (1 - phase) * 0.35 * intensity;
+
+      this.gfx.lineStyle(1.5, 0xccfaff, alpha);
+      this.gfx.lineBetween(cx + sway - 4, y, cx + sway + 4, y - streakH);
+
+      this.gfx.lineStyle(1, 0xffffff, alpha * 0.6);
+      this.gfx.lineBetween(cx + sway, y, cx + sway + Math.sin(i) * 2, y - streakH * 0.7);
+    }
+
+    // Floor vent shimmer
+    this.gfx.fillStyle(0x00f0ff, 0.12 * intensity);
+    this.gfx.fillEllipse(cx, bottom - 6, colW * 0.7, 8);
   }
 
   destroy(): void {

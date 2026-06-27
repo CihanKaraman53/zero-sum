@@ -4,14 +4,13 @@ import { TEXT_POOL_SIZE } from '../core/Constants';
 
 interface FloatingTextItem {
   text: Phaser.GameObjects.Text;
-  glowText: Phaser.GameObjects.Text;
   life: number;
   active: boolean;
 }
 
 /**
  * FloatingText — object-pooled neon floating score/combo text.
- * Rises upward and fades out. Zero allocation during gameplay.
+ * Single Text object per item; tweens drive motion (no per-frame setText).
  */
 export class FloatingText {
   scene: Phaser.Scene;
@@ -28,13 +27,6 @@ export class FloatingText {
   }
 
   private createItem(): FloatingTextItem {
-    const glowText = this.scene.add.text(0, 0, '', {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '24px',
-      fontStyle: 'bold',
-      color: '#ffffff',
-    }).setOrigin(0.5).setVisible(false).setDepth(35).setAlpha(0.4);
-
     const text = this.scene.add.text(0, 0, '', {
       fontFamily: '"Orbitron", monospace',
       fontSize: '22px',
@@ -44,18 +36,15 @@ export class FloatingText {
       strokeThickness: 3,
     }).setOrigin(0.5).setVisible(false).setDepth(36);
 
-    return { text, glowText, life: 0, active: false };
+    return { text, life: 0, active: false };
   }
 
   private resetItem(item: FloatingTextItem): void {
     item.active = false;
+    this.scene.tweens.killTweensOf(item.text);
     item.text.setVisible(false);
-    item.glowText.setVisible(false);
   }
 
-  /**
-   * Show floating text at position.
-   */
   show(x: number, y: number, message: string, color: string = '#ffffff', size: number = 22, duration: number = 800): void {
     const item = this.pool.acquire();
     if (!item) return;
@@ -68,20 +57,11 @@ export class FloatingText {
     item.text.setAlpha(1);
     item.text.setScale(0.5);
 
-    item.glowText.setText(message);
-    item.glowText.setPosition(x, y);
-    item.glowText.setColor(color);
-    item.glowText.setFontSize(`${size + 4}px`);
-    item.glowText.setVisible(true);
-    item.glowText.setAlpha(0.4);
-    item.glowText.setScale(0.5);
-
     item.life = duration;
     item.active = true;
 
-    // Pop-in then float up
     this.scene.tweens.add({
-      targets: [item.text, item.glowText],
+      targets: item.text,
       scaleX: 1,
       scaleY: 1,
       duration: 150,
@@ -89,42 +69,30 @@ export class FloatingText {
     });
 
     this.scene.tweens.add({
-      targets: [item.text, item.glowText],
+      targets: item.text,
       y: y - 60,
       alpha: 0,
       duration: duration,
       ease: 'Sine.easeIn',
       onComplete: () => {
         this.pool.release(item);
-      }
+      },
     });
   }
 
-  /**
-   * Show score text.
-   */
   showScore(x: number, y: number, score: number): void {
     const color = score > 0 ? '#00ff88' : '#ff3388';
     this.show(x, y, `+${score}`, color, 20, 700);
   }
 
-  /**
-   * Show combo text.
-   */
   showCombo(x: number, y: number, combo: number): void {
     this.show(x, y, `x${combo} COMBO!`, '#ffcc00', 28, 900);
   }
 
-  /**
-   * Show Zero Sum text.
-   */
   showZeroSum(x: number, y: number): void {
     this.show(x, y, 'ZERO SUM!', '#00ccff', 30, 1000);
   }
 
-  /**
-   * Show merge text.
-   */
   showMerge(x: number, y: number): void {
     this.show(x, y, 'MERGE!', '#88ff88', 22, 600);
   }

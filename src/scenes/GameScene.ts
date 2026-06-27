@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ObjectPool } from '../core/ObjectPool';
 import { JellyBall } from '../entities/JellyBall';
+import { AnchorBall } from '../entities/AnchorBall';
 import { Launcher } from '../entities/Launcher';
 
 import { Background } from '../effects/Background';
@@ -14,21 +15,24 @@ import { CollisionSystem } from '../systems/CollisionSystem';
 import { BlackHoleSystem } from '../systems/BlackHoleSystem';
 import { OverflowSystem } from '../systems/OverflowSystem';
 import { LevelManager } from '../systems/LevelManager';
+import { InvertedBucketSystem } from '../systems/InvertedBucketSystem';
 import { GeyserSystem } from '../systems/GeyserSystem';
 
 import { HUD } from '../ui/HUD';
 import { NextQueue } from '../ui/NextQueue';
 
 import { 
-  BALL_POOL_SIZE, CONTAINER_LEFT, CONTAINER_RIGHT, 
+  BALL_POOL_SIZE, ANCHOR_POOL_SIZE, CONTAINER_LEFT, CONTAINER_RIGHT, 
   CONTAINER_BOTTOM, CONTAINER_TOP, FIXED_TIMESTEP,
-  GAME_WIDTH, GAME_HEIGHT, OVERFLOW_Y
+  GAME_WIDTH, GAME_HEIGHT, OVERFLOW_Y, GRAVITY_Y, getBallRadius
 } from '../core/Constants';
+import { LEVEL_CONTAINER_BOTTOMS, LEVEL_CONTAINER_HALF_WIDTHS } from '../data/levels';
 
 export class GameScene extends Phaser.Scene {
   // Entites & Object Pools
   private background!: Background;
   private ballPool!: ObjectPool<JellyBall>;
+  private anchorPool!: ObjectPool<AnchorBall>;
   private launcher!: Launcher;
 
   // Effects
@@ -42,6 +46,7 @@ export class GameScene extends Phaser.Scene {
   private blackHoleSys!: BlackHoleSystem;
   private overflowSys!: OverflowSystem;
   private levelManager!: LevelManager;
+  private invertedBucketSys?: InvertedBucketSystem;
   private geyserSys!: GeyserSystem;
 
   // UI
@@ -55,6 +60,9 @@ export class GameScene extends Phaser.Scene {
   public dynamicOverflowY: number = OVERFLOW_Y;
   private ceilingTimer: number = 15000;
   private pressureText?: Phaser.GameObjects.Text;
+  private shrinkFxTimer?: Phaser.Time.TimerEvent;
+  private survivalFailPending: boolean = false;
+  private invertedOverflowTimer: number = 0;
 
   // Tutorial State
   private tutorialStep: number = 1;
@@ -71,29 +79,27 @@ export class GameScene extends Phaser.Scene {
   private rightWall!: any;
   private bottomWall!: any;
 
-  private readonly LEVEL_WIDTHS = [
-    75,   // Level 1
-    155,  // Level 2 (2 grid slots wider)
-    235,  // Level 3 (2 grid slots wider than L2: +80px)
-    400,  // Level 4 (Maximum Width)
-    400,  // Level 5
-    400,  // Level 6
-    400,  // Level 7
-    400,  // Level 8
-    400,  // Level 9
-    400   // Level 10
-  ];
-
   constructor() {
     super('GameScene');
   }
 
-  create(data?: { levelIndex?: number }) {
+  create(data?: { levelIndex?: number; fromLevelSelect?: boolean }) {
     this.isGameOver = false;
     this.isLevelTransitioning = false;
     this.fixedAccumulator = 0;
     this.dynamicOverflowY = OVERFLOW_Y;
     this.ceilingTimer = 15000;
+    this.survivalFailPending = false;
+    this.invertedOverflowTimer = 0;
+    this.invertedBucketSys?.destroy();
+    this.invertedBucketSys = undefined;
+    this.geyserSys?.destroy();
+
+    this.input.off('pointerdown', this.handleInputDrop, this);
+    this.input.off('pointermove', this.handlePointerMove, this);
+
+    this.matter.world.resume();
+
     if (this.pressureText) {
       this.pressureText.destroy();
       this.pressureText = undefined;
@@ -104,35 +110,65 @@ export class GameScene extends Phaser.Scene {
     this.particles = new ParticleManager(this);
     this.floatingText = new FloatingText(this);
 
-    // 2. Initialize Core Systems
+    // 2. Initialize Pools (before LevelManager — spawn logic may read active balls)
+    this.ballPool = new ObjectPool<JellyBall>(
+      () => new JellyBall(this),
+      (b) => b.deactivate(),
+      BALL_POOL_SIZE
+    );
+    this.anchorPool = new ObjectPool<AnchorBall>(
+      () => new AnchorBall(this),
+      (a) => a.deactivate(),
+      ANCHOR_POOL_SIZE
+    );
+
+    // 3. Initialize Core Systems
     this.scoring = new ScoringSystem(this);
-    this.combo = new ComboSystem(this, () => this.blackHoleSys.trigger());
     this.levelManager = new LevelManager(this.scoring);
     this.levelManager.getActiveBallValues = () => {
       return Array.from(this.ballPool.getActiveItems()).map(b => b.value);
     };
+    this.levelManager.getActiveBallCount = () => this.ballPool.getActiveCount();
+    this.levelManager.getActiveFrozenCount = () => {
+      let count = 0;
+      for (const b of this.ballPool.getActiveItems()) {
+        if (b.active && b.frozen) count++;
+      }
+      for (const a of this.anchorPool.getActiveItems()) {
+        if (a.active) count++;
+      }
+      return count;
+    };
+    this.combo = new ComboSystem(this, () => {
+      if (this.levelManager.currentLevelIndex !== 9) {
+        this.blackHoleSys.trigger();
+      }
+    });
+
+    const fromLevelSelect = !!(data && data.fromLevelSelect);
     if (data && typeof data.levelIndex === 'number') {
       this.levelManager.loadLevel(data.levelIndex);
     }
 
     // Dynamic Sizing Initialisation
     const lvlIdx = this.levelManager.currentLevelIndex;
-    const targetWidth = this.LEVEL_WIDTHS[Math.min(lvlIdx, this.LEVEL_WIDTHS.length - 1)];
-    const startWidth = lvlIdx === 0 ? targetWidth : this.LEVEL_WIDTHS[Math.min(lvlIdx - 1, this.LEVEL_WIDTHS.length - 1)];
-    const targetBottom = CONTAINER_BOTTOM;
-    const startBottom = CONTAINER_BOTTOM;
+    const sizeIdx = Math.min(lvlIdx, LEVEL_CONTAINER_HALF_WIDTHS.length - 1);
+    const prevIdx = Math.min(Math.max(lvlIdx - 1, 0), LEVEL_CONTAINER_HALF_WIDTHS.length - 1);
+    const targetHalfW = LEVEL_CONTAINER_HALF_WIDTHS[sizeIdx];
+    const startHalfW = lvlIdx === 0 ? targetHalfW : LEVEL_CONTAINER_HALF_WIDTHS[prevIdx];
+    const targetBottom = LEVEL_CONTAINER_BOTTOMS[Math.min(lvlIdx, LEVEL_CONTAINER_BOTTOMS.length - 1)];
+    const startBottom = lvlIdx === 0 ? targetBottom : LEVEL_CONTAINER_BOTTOMS[prevIdx];
     const cx = GAME_WIDTH / 2;
-    this.containerLeft = cx - startWidth / 2;
-    this.containerRight = cx + startWidth / 2;
-    this.containerBottom = startBottom;
+    if (fromLevelSelect) {
+      this.containerLeft = cx - targetHalfW;
+      this.containerRight = cx + targetHalfW;
+      this.containerBottom = targetBottom;
+    } else {
+      this.containerLeft = cx - startHalfW;
+      this.containerRight = cx + startHalfW;
+      this.containerBottom = startBottom;
+    }
     
-    // 3. Initialize Pools
-    this.ballPool = new ObjectPool<JellyBall>(
-      () => new JellyBall(this),
-      (b) => b.deactivate(),
-      BALL_POOL_SIZE
-    );
-
     // 4. Initialize Launcher
     this.launcher = new Launcher(this);
     this.launcher.setSpeed(lvlIdx === 0 ? 0 : this.levelManager.getLauncherSpeed());
@@ -146,7 +182,7 @@ export class GameScene extends Phaser.Scene {
 
     // 5. Initialize Mechanics Systems
     this.collisionSys = new CollisionSystem(
-      this, this.ballPool, this.particles, this.floatingText, this.scoring, this.combo
+      this, this.ballPool, this.anchorPool, this.particles, this.floatingText, this.scoring, this.combo
     );
     this.blackHoleSys = new BlackHoleSystem(this, this.ballPool, this.particles, this.scoring);
     this.overflowSys = new OverflowSystem(this, this.ballPool, () => this.handleGameOver());
@@ -155,6 +191,9 @@ export class GameScene extends Phaser.Scene {
     // Callbacks for level progression
     this.collisionSys.onFusion = (value: number) => {
       this.levelManager.registerFusion(value);
+      if (this.levelManager.hasDualFusionGoal() || this.levelManager.currentLevel.type === 'fusion_goal') {
+        this.hud?.updateZeroSumGoal();
+      }
       
       if (this.levelManager.currentLevelIndex === 3 && value >= 64 && !this.isLevelTransitioning) {
         this.levelManager.hasWon = true;
@@ -174,9 +213,26 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    this.collisionSys.onBallDestroyed = (wasFrozen: boolean) => this.levelManager.registerDestroyedBall(wasFrozen);
+    this.collisionSys.onBallDestroyed = (wasFrozen: boolean) => {
+      this.levelManager.registerDestroyedBall(wasFrozen);
+      if (this.levelManager.hasEmptyBoardGoal() || this.levelManager.hasAnchorClearGoal()) {
+        this.hud?.updateZeroSumGoal();
+      }
+      if (this.levelManager.hasAnchorClearGoal() && this.levelManager.checkWinCondition()) {
+        this.handleLevelWin();
+      }
+    };
 
     this.collisionSys.onZeroSum = (absVal: number) => {
+      if (this.levelManager.hasZeroSumGoal()) {
+        this.levelManager.registerZeroSum();
+        this.hud?.updateZeroSumGoal();
+      }
+
+      if (this.levelManager.hasEmptyBoardGoal() || this.levelManager.hasAnchorClearGoal()) {
+        this.hud?.updateZeroSumGoal();
+      }
+
       if (this.levelManager.currentLevelIndex === 0 && this.tutorialStep === 4) {
         if (this.tutorialText) {
           this.tutorialText.destroy();
@@ -191,48 +247,25 @@ export class GameScene extends Phaser.Scene {
     };
 
     this.collisionSys.onSplit = () => {
-      // Danger line Y-drop disabled for Level 4
+      if (this.levelManager.hasEmptyBoardGoal() || this.levelManager.hasAnchorClearGoal()) {
+        this.hud?.updateZeroSumGoal();
+      }
     };
 
     // 6. Setup Container Walls (Matter Static Bodies)
     this.setupWalls();
 
     // Wall width & height progression tween
-    if (lvlIdx > 0 && (startWidth !== targetWidth || startBottom !== targetBottom)) {
-      const boundsObj = { w: startWidth, h: startBottom };
-      this.tweens.add({
-        targets: boundsObj,
-        w: targetWidth,
-        h: targetBottom,
-        duration: 1000,
-        ease: 'Cubic.easeOut',
-        onUpdate: () => {
-          const halfW = boundsObj.w / 2;
-          this.containerLeft = cx - halfW;
-          this.containerRight = cx + halfW;
-          this.containerBottom = boundsObj.h;
-
-          // Update Matter physics wall positions
-          if (this.leftWall) {
-            this.matter.body.setPosition(this.leftWall as any, { x: this.containerLeft - 50, y: GAME_HEIGHT / 2 });
-          }
-          if (this.rightWall) {
-            this.matter.body.setPosition(this.rightWall as any, { x: this.containerRight + 50, y: GAME_HEIGHT / 2 });
-          }
-          if (this.bottomWall) {
-            this.matter.body.setPosition(this.bottomWall as any, { x: GAME_WIDTH / 2, y: this.containerBottom + 50 });
-          }
-
-          // Update Background
-          this.background.updateContainerBounds(this.containerLeft, this.containerRight, this.containerBottom);
-
-          // Update Launcher
-          this.launcher.updateBounds(this.containerLeft + 30, this.containerRight - 30);
-        }
-      });
+    const isHeightChange = startBottom !== targetBottom;
+    const isWidthChange = startHalfW !== targetHalfW;
+    if (!fromLevelSelect && lvlIdx > 0 && (isWidthChange || isHeightChange)) {
+      const layoutFx = (lvlIdx === 5 && isHeightChange) || (lvlIdx === 6 && isWidthChange);
+      this.playContainerResize(
+        startHalfW * 2, targetHalfW * 2, startBottom, targetBottom,
+        layoutFx ? 2800 : 1000, layoutFx
+      );
     } else {
-      this.background.updateContainerBounds(this.containerLeft, this.containerRight, this.containerBottom);
-      this.launcher.updateBounds(this.containerLeft + 30, this.containerRight - 30);
+      this.applyContainerBounds(targetHalfW, targetBottom);
     }
 
     // 7. Setup UI
@@ -245,6 +278,10 @@ export class GameScene extends Phaser.Scene {
 
     // Spawn preplaced level objects if any
     this.spawnPreplacedBalls();
+    this.spawnLevel8BottomRow();
+    this.setupInvertedBucketForLevel();
+    this.setupGeyserForLevel();
+    this.setupLevel10Pressure();
 
     // Initial UI update
     this.hud.update();
@@ -293,10 +330,45 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     if (this.isGameOver) return;
 
-    if (this.levelManager.currentLevelIndex > 3) {
+    if (this.levelManager.currentLevelIndex >= 6 &&
+        this.levelManager.currentLevelIndex !== 7 &&
+        this.levelManager.currentLevelIndex !== 8 &&
+        this.levelManager.currentLevelIndex !== 9) {
       this.updateCeilingPressure(delta);
     }
 
+    if (
+      this.levelManager.hasTimeSurvival() &&
+      !this.isLevelTransitioning &&
+      !this.isGameOver
+    ) {
+      this.levelManager.tickSurvival(delta);
+      this.hud.updateSurvival();
+      if (this.levelManager.isSurvivalTimeExpired()) {
+        this.checkSurvivalFailed();
+      }
+    }
+
+    if (this.invertedBucketSys?.isLevelActive()) {
+      this.invertedBucketSys.update(delta);
+      if (!this.invertedBucketSys.hasFlipped()) {
+        this.hud.setFlipCountdownHint(this.invertedBucketSys.getFlipSecondsRemaining());
+      } else {
+        this.hud.setFlipCountdownHint(null);
+        if (!this.levelManager.level8FlipComplete) {
+          this.levelManager.markLevel8FlipComplete();
+          this.nextQueue.update();
+          this.launcher.setPreview(
+            this.levelManager.getQueue()[0].value,
+            this.levelManager.getQueue()[0].special
+          );
+          this.floatingText.show(
+            GAME_WIDTH / 2, CONTAINER_TOP + 50,
+            'KARMA TOPLAR! + ve - gelir', '#00ff88', 18, 2200
+          );
+        }
+      }
+    }
 
     if (this.levelManager.currentLevelIndex >= 2 && !this.isLevelTransitioning) {
       if (this.levelManager.checkWinCondition()) {
@@ -318,25 +390,30 @@ export class GameScene extends Phaser.Scene {
       }
       this.particles.update(FIXED_TIMESTEP);
       this.combo.update(time);
-      this.blackHoleSys.update(FIXED_TIMESTEP);
+      if (this.levelManager.currentLevelIndex !== 9) {
+        this.blackHoleSys.update(FIXED_TIMESTEP);
+      }
 
-      // Disable overflow gameover timer for Level 1 (Tutorial)
-      if (this.levelManager.currentLevelIndex !== 0) {
+      const skipOverflow =
+        this.levelManager.currentLevelIndex === 0 ||
+        this.levelManager.currentLevelIndex === 8 ||
+        this.levelManager.currentLevelIndex === 9 ||
+        this.invertedBucketSys?.isFlipping();
+      if (!skipOverflow) {
         this.overflowSys.update(FIXED_TIMESTEP);
       }
 
-      // Clear collision processed flags for the next step
       this.collisionSys.clearProcessed();
 
       this.fixedAccumulator -= FIXED_TIMESTEP;
     }
 
-    // Uncapped interpolation updates
-    const activeBalls = this.ballPool.getActiveItems();
-    activeBalls.forEach(ball => ball.syncPosition());
+    // Sync dynamic jelly balls only — AnchorBall has no per-frame sync loop
+    for (const ball of this.ballPool.getActiveItems()) {
+      if (ball.active && !ball.frozen) ball.syncPosition();
+    }
 
-    // Update geyser system if in Level 5
-    if (this.levelManager.currentLevelIndex === 4 && !this.isLevelTransitioning && !this.isGameOver) {
+    if (this.levelManager.currentLevelIndex === 8 && !this.isLevelTransitioning && !this.isGameOver) {
       this.geyserSys.setVisible(true);
       this.geyserSys.update(time, delta);
     } else {
@@ -448,16 +525,29 @@ export class GameScene extends Phaser.Scene {
 
   private handleInputDrop(pointer: Phaser.Input.Pointer) {
     if (this.isGameOver || this.isLevelTransitioning) return;
+    if (this.invertedBucketSys?.isBlockingInput()) return;
 
+
+    if (this.levelManager.isOutOfDrops()) return;
 
     if (this.launcher.tryDrop(this.time.now)) {
-      // Get ball from queue
       const dropItem = this.levelManager.consumeNextDrop();
       
-      // Spawn ball
       const ball = this.ballPool.acquire();
       if (ball) {
         ball.activate(this.launcher.getX(), this.launcher.getDropY(), dropItem.value, dropItem.special);
+      }
+
+      if (this.levelManager.hasDropLimit()) {
+        this.levelManager.registerDropUsed();
+        this.hud.updateDrops();
+        if (this.levelManager.isOutOfDrops() && !this.levelManager.hasWon) {
+          this.time.delayedCall(1800, () => this.checkMovesExpired());
+        }
+      }
+
+      if (this.levelManager.hasEmptyBoardGoal()) {
+        this.hud.updateZeroSumGoal();
       }
 
       // Tutorial Step 1 progress
@@ -487,9 +577,111 @@ export class GameScene extends Phaser.Scene {
 
   private handlePointerMove(pointer: Phaser.Input.Pointer) {
     if (this.isGameOver || this.isLevelTransitioning) return;
-    if (this.levelManager.currentLevelIndex === 0) return; // Disable launcher dragging in Level 1
+    if (this.levelManager.currentLevelIndex === 0) return;
     this.launcher.isPlayerControlled = true;
     this.launcher.x = Phaser.Math.Clamp(pointer.x, this.containerLeft + 30, this.containerRight - 30);
+  }
+
+  private applyContainerBounds(halfWidth: number, bottom: number): void {
+    const cx = GAME_WIDTH / 2;
+    this.containerLeft = cx - halfWidth;
+    this.containerRight = cx + halfWidth;
+    this.containerBottom = bottom;
+
+    if (this.leftWall) {
+      this.matter.body.setPosition(this.leftWall as any, { x: this.containerLeft - 50, y: GAME_HEIGHT / 2 });
+    }
+    if (this.rightWall) {
+      this.matter.body.setPosition(this.rightWall as any, { x: this.containerRight + 50, y: GAME_HEIGHT / 2 });
+    }
+    if (this.bottomWall) {
+      this.matter.body.setPosition(this.bottomWall as any, { x: GAME_WIDTH / 2, y: this.containerBottom + 50 });
+    }
+
+    this.background.updateContainerBounds(this.containerLeft, this.containerRight, this.containerBottom);
+    this.launcher.updateBounds(this.containerLeft + 30, this.containerRight - 30);
+  }
+
+  private setMainWallsEnabled(enabled: boolean): void {
+    for (const wall of [this.leftWall, this.rightWall, this.bottomWall]) {
+      if (!wall) continue;
+      this.matter.body.set(wall, { isSensor: !enabled });
+    }
+  }
+
+  private checkSurvivalFailed(): void {
+    if (this.survivalFailPending || this.isGameOver || this.isLevelTransitioning || this.levelManager.hasWon) return;
+    if (!this.levelManager.isSurvivalTimeExpired()) return;
+
+    this.survivalFailPending = true;
+    this.floatingText.show(
+      GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40,
+      'TIME UP!', '#ff2244', 28, 1200
+    );
+    this.time.delayedCall(1200, () => {
+      if (!this.levelManager.hasWon) this.handleGameOver();
+    });
+  }
+
+  private checkMovesExpired(): void {
+    if (this.isGameOver || this.isLevelTransitioning || this.levelManager.hasWon) return;
+    if (!this.levelManager.isOutOfDrops()) return;
+
+    this.floatingText.show(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40, 'OUT OF MOVES!', '#ff2244', 28, 1200);
+    this.time.delayedCall(1200, () => {
+      if (!this.levelManager.hasWon) this.handleGameOver();
+    });
+  }
+
+  private playContainerResize(
+    fromW: number, toW: number, fromH: number, toH: number,
+    duration: number, withShrinkFx: boolean, onComplete?: () => void
+  ): void {
+    const boundsObj = { w: fromW, h: fromH };
+    this.shrinkFxTimer?.destroy();
+
+    if (withShrinkFx) {
+      this.shrinkFxTimer = this.time.addEvent({
+        delay: 90,
+        loop: true,
+        callback: () => {
+          const px = Phaser.Math.Between(this.containerLeft + 15, this.containerRight - 15);
+          this.particles.burst(px, this.containerBottom, 0x00ccff, 4, 1.8, 280);
+          if (toW < fromW) {
+            this.particles.burst(this.containerLeft, GAME_HEIGHT / 2, 0xff3388, 3, 1.5, 220);
+            this.particles.burst(this.containerRight, GAME_HEIGHT / 2, 0xff3388, 3, 1.5, 220);
+          }
+        }
+      });
+    }
+
+    this.tweens.add({
+      targets: boundsObj,
+      w: toW,
+      h: toH,
+      duration,
+      ease: withShrinkFx ? 'Cubic.easeInOut' : 'Cubic.easeOut',
+      onUpdate: () => {
+        this.applyContainerBounds(boundsObj.w / 2, boundsObj.h);
+      },
+      onComplete: () => {
+        this.shrinkFxTimer?.destroy();
+        this.shrinkFxTimer = undefined;
+        this.applyContainerBounds(toW / 2, toH);
+        if (withShrinkFx) {
+          this.cameras.main.shake(250, 0.01);
+          this.particles.burst(GAME_WIDTH / 2, this.containerBottom, 0x00ff88, 20, 2.5, 450);
+        } else if (toH > fromH) {
+          this.particles.burst(GAME_WIDTH / 2, this.containerBottom, 0x00ccff, 16, 2, 400);
+        }
+        if (toW < fromW) {
+          this.cameras.main.shake(200, 0.008);
+          this.particles.burst(this.containerLeft, GAME_HEIGHT / 2, 0xff3388, 14, 2, 350);
+          this.particles.burst(this.containerRight, GAME_HEIGHT / 2, 0xff3388, 14, 2, 350);
+        }
+        onComplete?.();
+      }
+    });
   }
 
   private setupWalls() {
@@ -509,15 +701,133 @@ export class GameScene extends Phaser.Scene {
     this.rightWall = this.matter.add.rectangle(this.containerRight + 50, GAME_HEIGHT / 2, 100, GAME_HEIGHT, wallOpts) as any;
   }
 
+  private spawnLevel8BottomRow(): void {
+    if (this.levelManager.currentLevelIndex !== 7) return;
+
+    const count = 8;
+    const value = -2;
+    const radius = getBallRadius(2);
+    const y = this.containerBottom - radius - 12;
+    const left = this.containerLeft + radius + 12;
+    const right = this.containerRight - radius - 12;
+
+    for (let i = 0; i < count; i++) {
+      const x = left + (i / (count - 1)) * (right - left);
+      const ball = this.ballPool.acquire();
+      if (ball) {
+        ball.activate(x, y, value, null);
+      }
+    }
+  }
+
+  private setupInvertedBucketForLevel(): void {
+    this.invertedBucketSys?.destroy();
+    this.invertedBucketSys = undefined;
+
+    if (this.levelManager.currentLevelIndex === 7) {
+      this.invertedBucketSys = new InvertedBucketSystem(
+        this,
+        this.background,
+        this.launcher,
+        this.floatingText,
+        this.particles,
+        () => this.levelManager.getGravity(),
+        () => Array.from(this.ballPool.getActiveItems()),
+        (enabled) => this.setMainWallsEnabled(enabled)
+      );
+      this.invertedBucketSys.start(
+        this.containerLeft,
+        this.containerRight,
+        this.containerBottom
+      );
+    } else {
+      this.matter.world.setGravity(0, GRAVITY_Y);
+    }
+  }
+
+  private setupLevel10Pressure(): void {
+    if (this.levelManager.currentLevelIndex === 9) {
+      this.dynamicOverflowY = OVERFLOW_Y;
+      if (this.pressureText) this.pressureText.setVisible(false);
+      this.overflowSys?.stopPanic();
+      this.blackHoleSys?.forceHide();
+    }
+  }
+
+  private getCeilingPressureConfig(): { interval: number; step: number } {
+    if (this.levelManager.currentLevelIndex === 9) {
+      return { interval: 9000, step: 32 };
+    }
+    return { interval: 15000, step: 20 };
+  }
+
+  private setupGeyserForLevel(): void {
+    if (this.levelManager.currentLevelIndex === 8) {
+      this.dynamicOverflowY = OVERFLOW_Y;
+      this.ceilingTimer = 15000;
+      if (this.pressureText) this.pressureText.setVisible(false);
+      this.overflowSys.stopPanic();
+      this.geyserSys.setVisible(true);
+      this.floatingText.show(
+        GAME_WIDTH / 2, CONTAINER_TOP + 72,
+        'YAN RÜZGAR — +128 ve -128 oluştur', '#00f0ff', 18, 2400
+      );
+      this.geyserSys.reset();
+    } else {
+      this.geyserSys.setVisible(false);
+    }
+  }
+
+  private finishLevelStart(): void {
+    this.survivalFailPending = false;
+    this.spawnPreplacedBalls();
+    this.spawnLevel8BottomRow();
+    this.setupInvertedBucketForLevel();
+    this.setupGeyserForLevel();
+    this.setupLevel10Pressure();
+    this.hud.update();
+    this.nextQueue.update();
+    this.isLevelTransitioning = false;
+    this.launcher.isPlayerControlled = true;
+    this.launcher.setSpeed(this.levelManager.getLauncherSpeed());
+    this.launcher.updateBounds(this.containerLeft + 30, this.containerRight - 30);
+    const nextInQueue = this.levelManager.getQueue()[0];
+    this.launcher.setPreview(nextInQueue.value, nextInQueue.special);
+  }
+
   private spawnPreplacedBalls() {
     const preplaced = this.levelManager.currentLevel.preplacedBalls;
     if (preplaced) {
       preplaced.forEach(p => {
-        const ball = this.ballPool.acquire();
-        if (ball) {
-          ball.activate(p.x, p.y, p.value, null, p.frozen);
+        if (p.frozen) {
+          const anchor = this.anchorPool.acquire();
+          if (anchor) anchor.activate(p.x, p.y, p.value);
+        } else {
+          const ball = this.ballPool.acquire();
+          if (ball) ball.activate(p.x, p.y, p.value, null, false);
         }
       });
+    }
+  }
+
+  private clearAllBoardBalls(withBurst = false): void {
+    for (const ball of this.ballPool.getActiveItems()) {
+      if (!ball.active || !ball.body) continue;
+      if (withBurst) {
+        const color = ball.sign > 0 ? 0x00ff88 : 0xff3388;
+        this.particles.burst(ball.body.position.x, ball.body.position.y, color, 12, 1.5, 300);
+      }
+      ball.deactivate();
+      this.ballPool.release(ball);
+    }
+    for (const anchor of this.anchorPool.getActiveItems()) {
+      if (!anchor.active) continue;
+      if (withBurst) {
+        const color = anchor.sign > 0 ? 0x00ff88 : 0xff3388;
+        this.particles.burst(anchor.anchorX, anchor.anchorY, color, 12, 1.5, 300);
+      }
+      anchor.deactivate();
+      this.anchorPool.release(anchor);
     }
   }
 
@@ -536,7 +846,8 @@ export class GameScene extends Phaser.Scene {
       
       this.scene.start('GameOverScene', { 
         score: this.scoring.score, 
-        highScore: this.scoring.highScore 
+        highScore: this.scoring.highScore,
+        levelIndex: this.levelManager.currentLevelIndex,
       });
     });
   }
@@ -735,18 +1046,7 @@ export class GameScene extends Phaser.Scene {
     this.isLevelTransitioning = true;
     this.launcher.isPlayerControlled = false;
 
-    // Clear any remaining balls with satisfying particle burst
-    const activeBalls = this.ballPool.getActiveItems();
-    activeBalls.forEach(ball => {
-      if (ball.active && ball.body) {
-        const px = ball.body.position.x;
-        const py = ball.body.position.y;
-        const color = ball.sign > 0 ? 0x00ff88 : 0xff3388;
-        this.particles.burst(px, py, color, 12, 1.5, 300);
-        ball.deactivate();
-        this.ballPool.release(ball);
-      }
-    });
+    this.clearAllBoardBalls(true);
 
     this.playVictorySound();
 
@@ -761,7 +1061,15 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (fromLevelIndex === 4) {
-      this.showLevel5TeaserMenu();
+      this.playLevel5ToLevel6Transition();
+      return;
+    }
+    if (fromLevelIndex === 5) {
+      this.playLevel6ToLevel7Transition();
+      return;
+    }
+    if (fromLevelIndex === 6) {
+      this.playLevel7ToLevel8Transition();
       return;
     }
 
@@ -832,63 +1140,45 @@ export class GameScene extends Phaser.Scene {
           titleGlow.destroy();
           titleShadow.destroy();
 
-          // 5. Play a smooth hydraulic/lazer tween animation expanding the left and right energy walls outward.
-          const startW = this.LEVEL_WIDTHS[Math.min(fromLevelIndex, this.LEVEL_WIDTHS.length - 1)];
-          const targetW = this.LEVEL_WIDTHS[Math.min(fromLevelIndex + 1, this.LEVEL_WIDTHS.length - 1)];
-          const boundsObj = { w: startW };
-          
-          this.tweens.add({
-            targets: boundsObj,
-            w: targetW,
-            duration: 1000,
-            ease: 'Cubic.easeOut',
-            onUpdate: () => {
-              const halfW = boundsObj.w / 2;
-              this.containerLeft = cx - halfW;
-              this.containerRight = cx + halfW;
-              
-              // Update Matter physics wall positions
-              if (this.leftWall) {
-                this.matter.body.setPosition(this.leftWall as any, { x: this.containerLeft - 50, y: GAME_HEIGHT / 2 });
-              }
-              if (this.rightWall) {
-                this.matter.body.setPosition(this.rightWall as any, { x: this.containerRight + 50, y: GAME_HEIGHT / 2 });
-              }
-              
-              // Update Background visual representation
-              this.background.updateContainerBounds(this.containerLeft, this.containerRight, this.containerBottom);
+          // 5. Animate container width and/or height change
+          const startW = LEVEL_CONTAINER_HALF_WIDTHS[Math.min(fromLevelIndex, LEVEL_CONTAINER_HALF_WIDTHS.length - 1)] * 2;
+          const targetW = LEVEL_CONTAINER_HALF_WIDTHS[Math.min(fromLevelIndex + 1, LEVEL_CONTAINER_HALF_WIDTHS.length - 1)] * 2;
+          const startH = LEVEL_CONTAINER_BOTTOMS[Math.min(fromLevelIndex, LEVEL_CONTAINER_BOTTOMS.length - 1)];
+          const targetH = LEVEL_CONTAINER_BOTTOMS[Math.min(fromLevelIndex + 1, LEVEL_CONTAINER_BOTTOMS.length - 1)];
+          const heightChanging = startH !== targetH;
+          const widthChanging = startW !== targetW;
 
-              // Update Launcher boundaries
-              this.launcher.updateBounds(this.containerLeft + 30, this.containerRight - 30);
-            },
-            onComplete: () => {
-              // 6. Fade out the dark overlay.
-              this.tweens.add({
-                targets: overlay,
-                alpha: 0,
-                duration: 300,
-                onComplete: () => {
-                  overlay.destroy();
-                  
-                  // Setup next level on levelManager (without reloading scene)
-                  this.levelManager.nextLevel();
-                  
-                  // Update HUD and queue visuals
-                  this.hud.update();
-                  this.nextQueue.update();
+          const finishTransition = () => {
+            this.tweens.add({
+              targets: overlay,
+              alpha: 0,
+              duration: 300,
+              onComplete: () => {
+                overlay.destroy();
+                this.levelManager.nextLevel();
+                this.finishLevelStart();
+              }
+            });
+          };
 
-                  // Unfreeze launcher controls
-                  this.isLevelTransitioning = false;
-                  this.launcher.isPlayerControlled = true;
-                  this.launcher.setSpeed(this.levelManager.getLauncherSpeed());
-                  
-                  // Set launcher's next ball preview from levelManager's current queue
-                  const nextInQueue = this.levelManager.getQueue()[0];
-                  this.launcher.setPreview(nextInQueue.value, nextInQueue.special);
-                }
-              });
-            }
-          });
+          if (heightChanging || widthChanging) {
+            this.playContainerResize(startW, targetW, startH, targetH, heightChanging || widthChanging ? 2200 : 1000, heightChanging || widthChanging, finishTransition);
+          } else {
+            const boundsObj = { w: startW };
+            this.tweens.add({
+              targets: boundsObj,
+              w: targetW,
+              duration: 1000,
+              ease: 'Cubic.easeOut',
+              onUpdate: () => {
+                this.applyContainerBounds(boundsObj.w / 2, startH);
+              },
+              onComplete: () => {
+                this.applyContainerBounds(targetW / 2, startH);
+                finishTransition();
+              }
+            });
+          }
         }
       });
     });
@@ -940,7 +1230,7 @@ export class GameScene extends Phaser.Scene {
       });
 
       // Expand energy walls
-      const startW = this.LEVEL_WIDTHS[2]; // Level 3 width (235)
+      const startW = LEVEL_CONTAINER_HALF_WIDTHS[2] * 2; // Level 3 width (235)
       const targetW = 400; // max width
       const boundsObj = { w: startW };
       
@@ -1039,6 +1329,293 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private playLevel5ToLevel6Transition() {
+    this.isLevelTransitioning = true;
+    this.launcher.isPlayerControlled = false;
+
+    const overlay = this.add.graphics().setDepth(100);
+    overlay.fillStyle(0x050510, 0.75);
+    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    overlay.setAlpha(0);
+
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 400 });
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2 - 100;
+
+    const titleGlow = this.add.text(cx, cy - 30, 'LEVEL 5 COMPLETED', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '34px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+    const titleShadow = this.add.text(cx, cy - 30, 'LEVEL 5 COMPLETED', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '34px',
+      color: '#00ff88',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(100).setAlpha(0);
+
+    this.tweens.add({
+      targets: [titleGlow, titleShadow],
+      alpha: 1,
+      y: cy,
+      duration: 600,
+      ease: 'Back.easeOut',
+    });
+
+    this.playVictorySound();
+
+    const hydraulicLine = this.add.graphics().setDepth(99);
+    const drawHydraulic = (y: number, alpha: number) => {
+      hydraulicLine.clear();
+      hydraulicLine.lineStyle(3, 0x00ccff, alpha);
+      hydraulicLine.beginPath();
+      hydraulicLine.moveTo(this.containerLeft, y);
+      hydraulicLine.lineTo(this.containerRight, y);
+      hydraulicLine.strokePath();
+      hydraulicLine.fillStyle(0x00ccff, alpha * 0.15);
+      hydraulicLine.fillRect(this.containerLeft, y - 2, this.containerRight - this.containerLeft, 4);
+    };
+
+    this.time.delayedCall(1600, () => {
+      this.tweens.add({
+        targets: [titleGlow, titleShadow],
+        alpha: 0,
+        y: cy - 50,
+        duration: 350,
+        onComplete: () => {
+          titleGlow.destroy();
+          titleShadow.destroy();
+        }
+      });
+
+      const startH = LEVEL_CONTAINER_BOTTOMS[4];
+      const targetH = LEVEL_CONTAINER_BOTTOMS[5];
+      const startW = LEVEL_CONTAINER_HALF_WIDTHS[4] * 2;
+      let lineAlpha = 0.9;
+
+      drawHydraulic(startH, lineAlpha);
+
+      this.playContainerResize(startW, startW, startH, targetH, 3000, true, () => {
+        hydraulicLine.destroy();
+
+        const alertText = this.add.text(cx, cy, 'NEW MISSION:\nFORGE +128 IN 30 MOVES', {
+          fontFamily: '"Orbitron", monospace',
+          fontSize: '22px',
+          color: '#ff2244',
+          fontStyle: 'bold',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(101).setAlpha(0).setScale(0.85);
+
+        this.cameras.main.flash(180, 255, 34, 68);
+
+        this.tweens.add({
+          targets: alertText,
+          alpha: 1,
+          scaleX: 1,
+          scaleY: 1,
+          duration: 450,
+          ease: 'Back.easeOut',
+          onComplete: () => {
+            this.time.delayedCall(1400, () => {
+              this.tweens.add({
+                targets: [alertText, overlay],
+                alpha: 0,
+                duration: 450,
+                onComplete: () => {
+                  alertText.destroy();
+                  overlay.destroy();
+                  this.levelManager.nextLevel();
+                  this.finishLevelStart();
+                }
+              });
+            });
+          }
+        });
+      });
+
+      // Animate hydraulic line rising with the floor
+      const lineObj = { h: startH, a: lineAlpha };
+      this.tweens.add({
+        targets: lineObj,
+        h: targetH,
+        a: 0.3,
+        duration: 3000,
+        ease: 'Cubic.easeInOut',
+        onUpdate: () => {
+          drawHydraulic(lineObj.h, lineObj.a);
+        },
+      });
+    });
+  }
+
+  private playLevel6ToLevel7Transition() {
+    this.isLevelTransitioning = true;
+    this.launcher.isPlayerControlled = false;
+
+    const overlay = this.add.graphics().setDepth(100);
+    overlay.fillStyle(0x050510, 0.75);
+    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    overlay.setAlpha(0);
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 400 });
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2 - 90;
+
+    const titleGlow = this.add.text(cx, cy - 20, 'LEVEL 6 COMPLETED', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '32px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+    this.tweens.add({
+      targets: titleGlow,
+      alpha: 1,
+      y: cy,
+      duration: 600,
+      ease: 'Back.easeOut',
+    });
+
+    this.playVictorySound();
+
+    this.time.delayedCall(1500, () => {
+      this.tweens.add({
+        targets: titleGlow,
+        alpha: 0,
+        y: cy - 40,
+        duration: 350,
+        onComplete: () => titleGlow.destroy(),
+      });
+
+      const startH = LEVEL_CONTAINER_BOTTOMS[5];
+      const targetH = LEVEL_CONTAINER_BOTTOMS[6];
+      const startW = LEVEL_CONTAINER_HALF_WIDTHS[5] * 2;
+      const targetW = LEVEL_CONTAINER_HALF_WIDTHS[6] * 2;
+
+      this.playContainerResize(startW, targetW, startH, targetH, 3000, true, () => {
+        const alertText = this.add.text(cx, cy, 'THE NARROWS\n15 ZERO SUMS IN 90s', {
+          fontFamily: '"Orbitron", monospace',
+          fontSize: '22px',
+          color: '#00f0ff',
+          fontStyle: 'bold',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+        this.cameras.main.flash(180, 0, 240, 255);
+
+        this.tweens.add({
+          targets: alertText,
+          alpha: 1,
+          duration: 450,
+          ease: 'Back.easeOut',
+          onComplete: () => {
+            this.time.delayedCall(1400, () => {
+              this.tweens.add({
+                targets: [alertText, overlay],
+                alpha: 0,
+                duration: 450,
+                onComplete: () => {
+                  alertText.destroy();
+                  overlay.destroy();
+                  this.levelManager.nextLevel();
+                  this.finishLevelStart();
+                }
+              });
+            });
+          }
+        });
+      });
+    });
+  }
+
+  private playLevel7ToLevel8Transition() {
+    this.isLevelTransitioning = true;
+    this.launcher.isPlayerControlled = false;
+
+    const overlay = this.add.graphics().setDepth(100);
+    overlay.fillStyle(0x050510, 0.75);
+    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    overlay.setAlpha(0);
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 400 });
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2 - 90;
+
+    const titleGlow = this.add.text(cx, cy - 20, 'LEVEL 7 COMPLETED', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '32px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+    this.tweens.add({
+      targets: titleGlow,
+      alpha: 1,
+      y: cy,
+      duration: 600,
+      ease: 'Back.easeOut',
+    });
+
+    this.playVictorySound();
+
+    this.time.delayedCall(1500, () => {
+      this.tweens.add({
+        targets: titleGlow,
+        alpha: 0,
+        y: cy - 40,
+        duration: 350,
+        onComplete: () => titleGlow.destroy(),
+      });
+
+      const startW = LEVEL_CONTAINER_HALF_WIDTHS[6] * 2;
+      const targetW = LEVEL_CONTAINER_HALF_WIDTHS[7] * 2;
+      const h = LEVEL_CONTAINER_BOTTOMS[7];
+
+      this.playContainerResize(startW, targetW, h, h, 2200, true, () => {
+        const alertText = this.add.text(cx, cy, 'THE TWISTED PARADOX\n10s SONRA BARDAK TERS DÖNER', {
+          fontFamily: '"Orbitron", monospace',
+          fontSize: '20px',
+          color: '#ff3388',
+          fontStyle: 'bold',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+        this.cameras.main.flash(200, 255, 51, 136);
+
+        this.tweens.add({
+          targets: alertText,
+          alpha: 1,
+          duration: 450,
+          ease: 'Back.easeOut',
+          onComplete: () => {
+            this.time.delayedCall(1400, () => {
+              this.tweens.add({
+                targets: [alertText, overlay],
+                alpha: 0,
+                duration: 450,
+                onComplete: () => {
+                  alertText.destroy();
+                  overlay.destroy();
+                  this.levelManager.nextLevel();
+                  this.finishLevelStart();
+                }
+              });
+            });
+          }
+        });
+      });
+    });
+  }
+
   private handleLevel4Win() {
     this.isLevelTransitioning = true;
     this.launcher.isPlayerControlled = false;
@@ -1051,16 +1628,7 @@ export class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(500, () => {
       this.matter.world.resume();
-      const activeBalls = this.ballPool.getActiveItems();
-      activeBalls.forEach(ball => {
-        if (ball.active && ball.body) {
-          const px = ball.body.position.x;
-          const py = ball.body.position.y;
-          this.particles.burst(px, py, 0x00ff88, 15, 2.5, 450);
-          ball.deactivate();
-          this.ballPool.release(ball);
-        }
-      });
+      this.clearAllBoardBalls(true);
       
       this.playVictorySound();
       
@@ -1087,10 +1655,11 @@ export class GameScene extends Phaser.Scene {
       this.pressureText.setVisible(true);
     }
 
+    const cfg = this.getCeilingPressureConfig();
     this.ceilingTimer -= delta;
     if (this.ceilingTimer <= 0) {
-      this.ceilingTimer = 15000;
-      this.dynamicOverflowY = Math.min(this.containerBottom - 100, this.dynamicOverflowY + 20);
+      this.ceilingTimer = cfg.interval;
+      this.dynamicOverflowY = Math.min(this.containerBottom - 100, this.dynamicOverflowY + cfg.step);
       this.cameras.main.shake(150, 0.005);
       this.floatingText.show(GAME_WIDTH / 2, this.dynamicOverflowY + 20, 'WARNING: DANGER LINE DROPPED!', '#ff2244', 20, 1000);
     }
@@ -1098,315 +1667,6 @@ export class GameScene extends Phaser.Scene {
     const secLeft = Math.ceil(this.ceilingTimer / 1000);
     this.pressureText.setText(`DANGER INCOMING: ${secLeft}s`);
     this.pressureText.setPosition(GAME_WIDTH / 2, this.dynamicOverflowY - 20);
-  }
-
-  private showLevel5TeaserMenu() {
-    this.isLevelTransitioning = true;
-    this.launcher.isPlayerControlled = false;
-    this.matter.world.pause();
-
-    const teaserGroup = this.add.group();
-    
-    // 1. Cyberpunk translucent overlay
-    const overlay = this.add.graphics().setDepth(150);
-    overlay.fillStyle(0x050512, 0.88);
-    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    overlay.setAlpha(0);
-    teaserGroup.add(overlay);
-    this.tweens.add({
-      targets: overlay,
-      alpha: 1,
-      duration: 400
-    });
-
-    // 2. Main Title Text
-    const titleText = this.add.text(GAME_WIDTH / 2, 70, "TRAINING COMPLETE!", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '26px',
-      color: '#ff0077',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(151);
-    titleText.setShadow(0, 0, '#ff0077', 8, true, true);
-
-    const subTitleText = this.add.text(GAME_WIDTH / 2, 105, "UNLOCKING SPECIAL ARSENAL...", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '15px',
-      color: '#00f0ff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(151);
-    subTitleText.setShadow(0, 0, '#00f0ff', 6, true, true);
-
-    teaserGroup.add(titleText);
-    teaserGroup.add(subTitleText);
-
-    // 3. Grid Frames Gfx
-    const framesGfx = this.add.graphics().setDepth(152);
-    teaserGroup.add(framesGfx);
-
-    const drawSlotFrame = (x: number, y: number, color: number) => {
-      framesGfx.lineStyle(2, color, 1.0);
-      framesGfx.strokeRoundedRect(x - 75, y - 45, 150, 90, 8);
-      
-      framesGfx.lineStyle(4, color, 0.4);
-      framesGfx.strokeRoundedRect(x - 77, y - 47, 154, 94, 10);
-    };
-
-    // Render 4 neon slots
-    drawSlotFrame(140, 220, 0xff5500); // Blast Ball (Orange)
-    drawSlotFrame(340, 220, 0xff0044); // Slice Ball (Neon Red)
-    drawSlotFrame(140, 350, 0xaa00ff); // Locked placeholder 1 (Purple)
-    drawSlotFrame(340, 350, 0x00ffaa); // Clone Ball (Glitch Green)
-
-    // Slot 1: Blast Ball (Glowing & Pulsing)
-    const blastSprite = this.add.sprite(140, 220, 'blast_ball').setDepth(153).setDisplaySize(42, 42);
-    teaserGroup.add(blastSprite);
-    this.tweens.add({
-      targets: blastSprite,
-      y: 220 - 8,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut'
-    });
-
-    const sparksTimer = this.time.addEvent({
-      delay: 200,
-      callback: () => {
-        this.particles.burst(140, blastSprite.y, 0xff5500, 2, 1.2, 350);
-      },
-      loop: true
-    });
-
-    // Slot 2: Slice Ball (Glowing & Pulsing, Neon Red)
-    const sliceSprite = this.add.sprite(340, 220, 'slice_ball').setDepth(153).setDisplaySize(42, 42);
-    teaserGroup.add(sliceSprite);
-    this.tweens.add({
-      targets: sliceSprite,
-      y: 220 - 8,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut'
-    });
-
-    const sliceSparksTimer = this.time.addEvent({
-      delay: 200,
-      callback: () => {
-        this.particles.burst(340, sliceSprite.y, 0xff0044, 2, 1.2, 350);
-      },
-      loop: true
-    });
-
-    // Slot 3: Dice Ball (Glowing & Pulsing, Neon Purple)
-    const diceSprite = this.add.sprite(140, 350, 'dice_ball').setDepth(153).setDisplaySize(42, 42);
-    teaserGroup.add(diceSprite);
-    this.tweens.add({
-      targets: diceSprite,
-      y: 350 - 8,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut'
-    });
-
-    const diceSparksTimer = this.time.addEvent({
-      delay: 200,
-      callback: () => {
-        this.particles.burst(140, diceSprite.y, 0xaa00ff, 2, 1.2, 350);
-      },
-      loop: true
-    });
-
-    // Slot 4: Clone Ball (Glitch)
-    const cloneSilhouette = this.add.sprite(340, 340, 'positive_ball').setDepth(153).setDisplaySize(38, 38).setAlpha(0.2);
-    const txt4 = this.add.text(340, 375, "CLONE BALL\nLocked - Coming Soon!", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '9px',
-      color: '#00ffaa',
-      align: 'center',
-      fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(153);
-    teaserGroup.add(cloneSilhouette);
-    teaserGroup.add(txt4);
-
-    const glitchTimer = this.time.addEvent({
-      delay: 150,
-      callback: () => {
-        const tints = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
-        cloneSilhouette.setTint(tints[Math.floor(Math.random() * tints.length)]);
-        cloneSilhouette.setAlpha(0.1 + Math.random() * 0.2);
-      },
-      loop: true
-    });
-
-    // Description text columns
-    // Left column: Blast Ball
-    const descTitleBlast = this.add.text(80, 435, "THE BLAST BALL", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '9.5px',
-      color: '#ff5500',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(153);
-    descTitleBlast.setShadow(0, 0, '#ff5500', 6, true, true);
-
-    const descBodyBlast = this.add.text(80, 510, 
-      "Tactical clearance core.\nExplodes on impact and\nvaporizes all balls within\na tight 2x radius to save\nyou from tight spots!", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '8.5px',
-      color: '#cccccc',
-      align: 'center',
-      lineSpacing: 4
-    }).setOrigin(0.5).setDepth(153);
-    teaserGroup.add(descTitleBlast);
-    teaserGroup.add(descBodyBlast);
-
-    // Middle column: Slice Ball
-    const descTitleSlice = this.add.text(240, 435, "THE SLICE BALL", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '9.5px',
-      color: '#ff0044',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(153);
-    descTitleSlice.setShadow(0, 0, '#ff0044', 6, true, true);
-
-    const descBodySlice = this.add.text(240, 510, 
-      "High-tech cutting blade.\nHits any large ball and\ninstantly slices it in half\n(e.g., turns a +32 into\ntwo +16 balls) to clear\nupper grid blocks!", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '8.5px',
-      color: '#cccccc',
-      align: 'center',
-      lineSpacing: 4
-    }).setOrigin(0.5).setDepth(153);
-    teaserGroup.add(descTitleSlice);
-    teaserGroup.add(descBodySlice);
-
-    // Right column: Dice Ball
-    const descTitleDice = this.add.text(400, 435, "THE DICE BALL", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '9.5px',
-      color: '#aa00ff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(153);
-    descTitleDice.setShadow(0, 0, '#aa00ff', 6, true, true);
-
-    const descBodyDice = this.add.text(400, 510, 
-      "Quantum probability core.\nHits any ball and\ntransforms it to a\nrandom value between\n-16 and +16 to shift\nthe energy of your grid!", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '8.5px',
-      color: '#cccccc',
-      align: 'center',
-      lineSpacing: 4
-    }).setOrigin(0.5).setDepth(153);
-    teaserGroup.add(descTitleDice);
-    teaserGroup.add(descBodyDice);
-
-    // Blinking neon action button
-    const btnX = GAME_WIDTH / 2;
-    const btnY = 640;
-    
-    const btnBg = this.add.graphics().setDepth(154);
-    btnBg.fillStyle(0xff5500, 0.15);
-    btnBg.lineStyle(3, 0xff5500, 1.0);
-    btnBg.fillRoundedRect(btnX - 160, btnY - 25, 320, 50, 12);
-    btnBg.strokeRoundedRect(btnX - 160, btnY - 25, 320, 50, 12);
-    
-    const btnGlow = this.add.graphics().setDepth(153);
-    btnGlow.lineStyle(5, 0xff5500, 0.4);
-    btnGlow.strokeRoundedRect(btnX - 162, btnY - 27, 324, 54, 14);
-    
-    const btnText = this.add.text(btnX, btnY, "EQUIP ARSENAL & ENTER LEVEL 6", {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '12px',
-      color: '#ffffff',
-      fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(155);
-    btnText.setShadow(0, 0, '#ff5500', 8, true, true);
-    
-    teaserGroup.add(btnBg);
-    teaserGroup.add(btnGlow);
-    teaserGroup.add(btnText);
-    
-    const pulseText = this.tweens.add({
-      targets: btnText,
-      alpha: 0.5,
-      duration: 600,
-      yoyo: true,
-      repeat: -1
-    });
-
-    const pulseBg = this.tweens.add({
-      targets: [btnBg, btnGlow],
-      scaleX: 1.02,
-      scaleY: 1.05,
-      duration: 600,
-      yoyo: true,
-      repeat: -1
-    });
-
-    const clickZone = this.add.zone(btnX, btnY, 320, 50).setOrigin(0.5).setDepth(156).setInteractive({ useHandCursor: true });
-    teaserGroup.add(clickZone);
-
-    clickZone.on('pointerdown', () => {
-      this.playVictorySound();
-      clickZone.destroy();
-
-      this.tweens.add({
-        targets: [overlay, titleText, subTitleText, framesGfx, blastSprite, sliceSprite, diceSprite, cloneSilhouette, txt4, descTitleBlast, descBodyBlast, descTitleSlice, descBodySlice, descTitleDice, descBodyDice, btnBg, btnGlow, btnText],
-        alpha: 0,
-        duration: 500,
-        onComplete: () => {
-          sparksTimer.destroy();
-          sliceSparksTimer.destroy();
-          diceSparksTimer.destroy();
-          glitchTimer.destroy();
-          pulseText.destroy();
-          pulseBg.destroy();
-          teaserGroup.clear(true, true);
-
-          this.matter.world.resume();
-
-          // Clear board with explosion visual
-          const activeBalls = this.ballPool.getActiveItems();
-          activeBalls.forEach(ball => {
-            if (ball.active && ball.body) {
-              const px = ball.body.position.x;
-              const py = ball.body.position.y;
-              this.particles.burst(px, py, 0xff5500, 10, 2.0, 300);
-              ball.deactivate();
-              this.ballPool.release(ball);
-            }
-          });
-
-          this.levelManager.nextLevel();
-          this.isLevelTransitioning = false;
-
-          const lvlIdx = this.levelManager.currentLevelIndex;
-          const targetWidth = this.LEVEL_WIDTHS[Math.min(lvlIdx, this.LEVEL_WIDTHS.length - 1)];
-
-          this.tweens.add({
-            targets: { w: this.containerRight - this.containerLeft },
-            w: targetWidth,
-            duration: 800,
-            ease: 'Cubic.easeOut',
-            onUpdate: (tween, target: any) => {
-              const halfW = target.w / 2;
-              this.containerLeft = GAME_WIDTH / 2 - halfW;
-              this.containerRight = GAME_WIDTH / 2 + halfW;
-              this.background.updateContainerBounds(this.containerLeft, this.containerRight, this.containerBottom);
-              this.launcher.updateBounds(this.containerLeft + 30, this.containerRight - 30);
-            },
-            onComplete: () => {
-              this.launcher.isPlayerControlled = true;
-              const nextInQueue = this.levelManager.getQueue()[0];
-              this.launcher.setPreview(nextInQueue.value, nextInQueue.special);
-              this.nextQueue.update();
-              this.hud.update();
-              this.spawnPreplacedBalls();
-            }
-          });
-        }
-      });
-    });
   }
 
 }

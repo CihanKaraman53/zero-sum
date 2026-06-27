@@ -1,11 +1,13 @@
 import Phaser from 'phaser';
 import { JellyBall } from '../entities/JellyBall';
+import { AnchorBall } from '../entities/AnchorBall';
+import { BallEntity } from '../entities/BallEntity';
 import { ObjectPool } from '../core/ObjectPool';
 import { ParticleManager } from '../effects/ParticleManager';
 import { FloatingText } from '../effects/FloatingText';
 import { ScoringSystem } from './ScoringSystem';
 import { ComboSystem } from './ComboSystem';
-import { POSITIVE_COLOR, NEGATIVE_COLOR, CAT_BALL, getBallRadius } from '../core/Constants';
+import { POSITIVE_COLOR, NEGATIVE_COLOR, CAT_BALL, getBallRadius, CONTAINER_TOP, CONTAINER_LEFT, CONTAINER_RIGHT, CONTAINER_BOTTOM } from '../core/Constants';
 
 export interface CollisionResult {
   type: 'merge' | 'zerosum' | 'shrink' | 'special' | 'none';
@@ -22,15 +24,18 @@ export interface CollisionResult {
 export class CollisionSystem {
   scene: Phaser.Scene;
   ballPool: ObjectPool<JellyBall>;
+  anchorPool: ObjectPool<AnchorBall>;
   particles: ParticleManager;
   floatingText: FloatingText;
   scoring: ScoringSystem;
   combo: ComboSystem;
 
-  // Prevent double-processing in same frame
+  // Prevent double-processing within one collision event batch
   private processedPairs: Set<string> = new Set();
+  private readonly onCollisionStart = (event: any) => this.onCollision(event, true);
+  private readonly onCollisionActive = (event: any) => this.onCollision(event, false);
   // Fusion callback for level manager
-  onFusion: ((absValue: number) => void) | null = null;
+  onFusion: ((value: number) => void) | null = null;
   onBallDestroyed: ((wasFrozen: boolean) => void) | null = null;
   onZeroSum: ((absValue: number) => void) | null = null;
   onSplit: (() => void) | null = null;
@@ -38,6 +43,7 @@ export class CollisionSystem {
   constructor(
     scene: Phaser.Scene,
     ballPool: ObjectPool<JellyBall>,
+    anchorPool: ObjectPool<AnchorBall>,
     particles: ParticleManager,
     floatingText: FloatingText,
     scoring: ScoringSystem,
@@ -45,26 +51,53 @@ export class CollisionSystem {
   ) {
     this.scene = scene;
     this.ballPool = ballPool;
+    this.anchorPool = anchorPool;
     this.particles = particles;
     this.floatingText = floatingText;
     this.scoring = scoring;
     this.combo = combo;
 
-    // Register Matter.js collision listeners for both initial impact and active overlaps
-    this.scene.matter.world.on('collisionstart', (e: any) => this.onCollision(e, true), this);
-    this.scene.matter.world.on('collisionactive', (e: any) => this.onCollision(e, false), this);
+    // Matter.js lifecycle only — no polling in update()
+    this.scene.matter.world.on('collisionstart', this.onCollisionStart);
+    this.scene.matter.world.on('collisionactive', this.onCollisionActive);
   }
 
   clearProcessed(): void {
     this.processedPairs.clear();
   }
 
-  private getJellyBall(body: any): JellyBall | null {
+  destroy(): void {
+    this.scene.matter.world.off('collisionstart', this.onCollisionStart);
+    this.scene.matter.world.off('collisionactive', this.onCollisionActive);
+  }
+
+  private getBall(body: any): BallEntity | null {
     if (!body) return null;
+    if (body.gameBall) return body.gameBall;
     if (body.jellyBall) return body.jellyBall;
-    if (body.parent && body.parent.jellyBall) return body.parent.jellyBall;
-    if (body.gameObject && (body.gameObject as any).jellyBall) return (body.gameObject as any).jellyBall;
+    if (body.parent?.gameBall) return body.parent.gameBall;
+    if (body.parent?.jellyBall) return body.parent.jellyBall;
+    if (body.gameObject?.gameBall) return body.gameObject.gameBall;
+    if (body.gameObject?.jellyBall) return body.gameObject.jellyBall;
     return null;
+  }
+
+  private releaseBall(ball: BallEntity): void {
+    ball.deactivate();
+    if (ball.poolKind === 'anchor') {
+      this.anchorPool.release(ball as AnchorBall);
+    } else {
+      this.ballPool.release(ball as JellyBall);
+    }
+  }
+
+  private forEachActiveBall(fn: (ball: BallEntity) => void): void {
+    for (const ball of this.ballPool.getActiveItems()) {
+      if (ball.active) fn(ball);
+    }
+    for (const anchor of this.anchorPool.getActiveItems()) {
+      if (anchor.active) fn(anchor);
+    }
   }
 
   private onCollision(event: any, isStart: boolean): void {
@@ -74,12 +107,10 @@ export class CollisionSystem {
       const bodyA = pair.bodyA;
       const bodyB = pair.bodyB;
 
-      // Only process ball-ball collisions
       if (bodyA.label !== 'jellyball' || bodyB.label !== 'jellyball') {
         if (isStart) {
-          // Ball hit wall — squash animation
-          const ball = bodyA.label === 'jellyball' ? this.getJellyBall(bodyA) :
-                       bodyB.label === 'jellyball' ? this.getJellyBall(bodyB) : null;
+          const ball = bodyA.label === 'jellyball' ? this.getBall(bodyA) :
+                       bodyB.label === 'jellyball' ? this.getBall(bodyB) : null;
           if (ball && ball.active) {
             ball.playSquash();
           }
@@ -87,16 +118,35 @@ export class CollisionSystem {
         continue;
       }
 
-      const ballA = this.getJellyBall(bodyA);
-      const ballB = this.getJellyBall(bodyB);
+      const ballA = this.getBall(bodyA);
+      const ballB = this.getBall(bodyB);
 
       if (!ballA || !ballB || !ballA.active || !ballB.active) continue;
 
-      // Prevent double processing
       const pairId = bodyA.id < bodyB.id ? `${bodyA.id}_${bodyB.id}` : `${bodyB.id}_${bodyA.id}`;
       if (this.processedPairs.has(pairId)) continue;
 
-      // Handle special balls
+      if (ballA.frozen || ballB.frozen) {
+        if (ballA.frozen && ballB.frozen) {
+          if (isStart) {
+            this.processedPairs.add(pairId);
+            ballA.playSquash();
+            ballB.playSquash();
+          }
+          continue;
+        }
+        if (!isStart) continue;
+        this.processedPairs.add(pairId);
+        const anchor = ballA.frozen ? ballA : ballB;
+        const dynamic = ballA.frozen ? ballB : ballA;
+        if ((dynamic as JellyBall).special) {
+          this.handleSpecialCollision(dynamic as JellyBall, anchor);
+        } else {
+          this.processAnchorCollision(anchor, dynamic);
+        }
+        continue;
+      }
+
       if (ballA.special || ballB.special) {
         this.processedPairs.add(pairId);
         this.handleSpecialCollision(ballA, ballB);
@@ -106,8 +156,6 @@ export class CollisionSystem {
       const sameSign = ballA.sign === ballB.sign;
       const sameValue = ballA.absValue === ballB.absValue;
 
-      // If they are not merging or zero-summing or shrinking (same sign, different value),
-      // we only want to play squash on the initial collision start.
       if (sameSign && !sameValue) {
         if (isStart) {
           this.processedPairs.add(pairId);
@@ -117,14 +165,28 @@ export class CollisionSystem {
         continue;
       }
 
-      // For merges, zero-sums, and shrinks, we process them immediately on start or active frame
       this.processedPairs.add(pairId);
-
       this.processCollision(ballA, ballB);
     }
   }
 
-  private processCollision(ballA: JellyBall, ballB: JellyBall): void {
+  private processAnchorCollision(anchor: BallEntity, dynamic: BallEntity): void {
+    const sameSign = anchor.sign === dynamic.sign;
+    const sameValue = anchor.absValue === dynamic.absValue;
+
+    if (sameSign && sameValue) {
+      this.handleMerge(anchor, dynamic);
+    } else if (sameSign) {
+      anchor.playSquash();
+      dynamic.playSquash();
+    } else if (sameValue) {
+      this.handleZeroSum(anchor, dynamic);
+    } else {
+      this.handleShrink(anchor, dynamic);
+    }
+  }
+
+  private processCollision(ballA: BallEntity, ballB: BallEntity): void {
     const sameSign = ballA.sign === ballB.sign;
     const sameValue = ballA.absValue === ballB.absValue;
 
@@ -158,14 +220,14 @@ export class CollisionSystem {
     }
   }
 
-  private handleKingDestroy(king: JellyBall, victim: JellyBall): void {
+  private handleKingDestroy(king: BallEntity, victim: BallEntity): void {
     const midX = victim.body!.position.x;
     const midY = victim.body!.position.y;
     const victimVal = victim.absValue;
 
     // Destroy victim
     victim.deactivate();
-    this.ballPool.release(victim);
+    this.releaseBall(victim);
 
     // King squashes but takes no damage
     king.playSquash();
@@ -179,7 +241,7 @@ export class CollisionSystem {
     if (this.onBallDestroyed) this.onBallDestroyed(victim.frozen);
   }
 
-  private handleMerge(ballA: JellyBall, ballB: JellyBall): void {
+  private handleMerge(ballA: BallEntity, ballB: BallEntity): void {
     const absVal = ballA.absValue;
     const sign = ballA.sign;
 
@@ -190,11 +252,15 @@ export class CollisionSystem {
 
     // Remove B, evolve A
     ballB.deactivate();
-    this.ballPool.release(ballB);
+    this.releaseBall(ballB);
 
     ballA.setValue(newValue);
     if (ballA.body) {
       this.scene.matter.body.setPosition(ballA.body, { x: midX, y: midY });
+    }
+    if (ballA.frozen) {
+      ballA.anchorX = midX;
+      ballA.anchorY = midY;
     }
     ballA.playSquash();
 
@@ -219,19 +285,23 @@ export class CollisionSystem {
       this.floatingText.showScore(midX, midY - 40, points);
     }
 
-    if (this.onFusion) this.onFusion(newAbsVal);
+    if (this.onFusion) this.onFusion(newValue);
+    if (ballB.frozen && this.onBallDestroyed) this.onBallDestroyed(true);
   }
 
-  private handleZeroSum(ballA: JellyBall, ballB: JellyBall): void {
+  private handleZeroSum(ballA: BallEntity, ballB: BallEntity): void {
     const absVal = ballA.absValue;
     const midX = (ballA.body!.position.x + ballB.body!.position.x) / 2;
     const midY = (ballA.body!.position.y + ballB.body!.position.y) / 2;
 
+    const aFrozen = ballA.frozen;
+    const bFrozen = ballB.frozen;
+
     // Destroy both
     ballA.deactivate();
     ballB.deactivate();
-    this.ballPool.release(ballA);
-    this.ballPool.release(ballB);
+    this.releaseBall(ballA);
+    this.releaseBall(ballB);
 
     // Epic explosion
     this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
@@ -258,14 +328,17 @@ export class CollisionSystem {
       }
     }
 
-    const wasFrozen = ballA.frozen || ballB.frozen;
-    if (this.onBallDestroyed) this.onBallDestroyed(wasFrozen);
+    if (this.onBallDestroyed) {
+      if (aFrozen) this.onBallDestroyed(true);
+      if (bFrozen) this.onBallDestroyed(true);
+    }
     if (this.onZeroSum) this.onZeroSum(absVal);
   }
 
-  private handleShrink(ballA: JellyBall, ballB: JellyBall): void {
-    // Determine which is bigger
-    let bigger: JellyBall, smaller: JellyBall;
+  private handleShrink(ballA: BallEntity, ballB: BallEntity): void {
+    if (!ballA.active || !ballB.active || !ballA.body || !ballB.body) return;
+
+    let bigger: BallEntity, smaller: BallEntity;
     if (ballA.absValue > ballB.absValue) {
       bigger = ballA;
       smaller = ballB;
@@ -278,69 +351,76 @@ export class CollisionSystem {
     const midY = bigger.body!.position.y;
     const smallAbsVal = smaller.absValue;
     const bigSign = bigger.sign;
+    const pinSpawns = ballA.frozen || ballB.frozen;
+    const spawnX = bigger.frozen ? bigger.anchorX : midX;
+    const spawnY = bigger.frozen ? bigger.anchorY : midY;
+    const aFrozen = ballA.frozen;
+    const bFrozen = ballB.frozen;
 
     // Destroy both balls (Splitting mechanic)
     smaller.deactivate();
-    this.ballPool.release(smaller);
-    
+    this.releaseBall(smaller);
+
     bigger.deactivate();
-    this.ballPool.release(bigger);
+    this.releaseBall(bigger);
 
     const newAbsVal = bigger.absValue - smallAbsVal;
-    
-    if (bigger.absValue === 16 && smallAbsVal === 4) {
-      for (let i = 0; i < 3; i++) {
-        const newBall = this.ballPool.acquire();
-        if (newBall) {
-          const ox = (Math.random() - 0.5) * 20;
-          const oy = (Math.random() - 0.5) * 20;
-          newBall.activate(midX + ox, midY + oy, 4 * bigSign);
+    const spawnAbsValues: number[] = [];
 
-          if (newBall.body) {
-            const vx = (Math.random() - 0.5) * 4;
-            const vy = -2 - Math.random() * 2; // Pop upward
-            this.scene.matter.body.setVelocity(newBall.body, { x: vx, y: vy });
-          }
-        }
-      }
-      const bigColor = bigSign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-      this.particles.burst(midX, midY, bigColor, 18, 2, 350);
+    if (bigger.absValue === 16 && smallAbsVal === 4) {
+      for (let i = 0; i < 3; i++) spawnAbsValues.push(4);
     } else if (newAbsVal > 0) {
-      // Split into powers of 2 using binary representation
-      let spawnCount = 0;
       let tempVal = newAbsVal;
       let power = 2;
       while (tempVal > 0) {
         if ((tempVal & power) === power) {
-          // Spawn this ball
-          const newBall = this.ballPool.acquire();
-          if (newBall) {
-            // Offset slightly to prevent exact overlap
-            const ox = (Math.random() - 0.5) * 20;
-            const oy = (Math.random() - 0.5) * 20;
-            newBall.activate(midX + ox, midY + oy, power * bigSign);
-
-            if (power >= 2048) {
-              newBall.makeKing();
-            }
-
-            // Apply velocity burst (pof pof pof)
-            if (newBall.body) {
-              const vx = (Math.random() - 0.5) * 4;
-              const vy = -1 - Math.random() * 2; // Pop upward
-              this.scene.matter.body.setVelocity(newBall.body, { x: vx, y: vy });
-            }
-          }
-          spawnCount++;
+          spawnAbsValues.push(power);
           tempVal -= power;
         }
         power *= 2;
       }
-      
+    }
+
+    const placedSpawns: { x: number; y: number; radius: number }[] = [];
+    let spawnCount = 0;
+
+    spawnAbsValues.sort((a, b) => b - a);
+
+    const pinnedObstacles = pinSpawns ? this.buildObstacleList(placedSpawns) : null;
+
+    for (const absVal of spawnAbsValues) {
+      const pos = pinSpawns
+        ? this.findPinnedSpawnPosition(spawnX, spawnY, absVal, pinnedObstacles!, placedSpawns)
+        : {
+            x: spawnX + (Math.random() - 0.5) * 20,
+            y: spawnY + (Math.random() - 0.5) * 20,
+          };
+
+      if (pinSpawns) {
+        const anchor = this.anchorPool.acquire();
+        if (!anchor) continue;
+        anchor.activate(pos.x, pos.y, absVal * bigSign, true);
+        if (absVal >= 2048) anchor.makeKing();
+        placedSpawns.push({ x: pos.x, y: pos.y, radius: anchor.radius });
+      } else {
+        const newBall = this.ballPool.acquire();
+        if (!newBall) continue;
+        newBall.activate(pos.x, pos.y, absVal * bigSign);
+        if (absVal >= 2048) newBall.makeKing();
+        if (newBall.body) {
+          const vx = (Math.random() - 0.5) * 4;
+          const vy = -1 - Math.random() * 2;
+          this.scene.matter.body.setVelocity(newBall.body, { x: vx, y: vy });
+        }
+        placedSpawns.push({ x: pos.x, y: pos.y, radius: newBall.radius });
+      }
+      spawnCount++;
+    }
+
+    if (spawnCount > 0) {
       const bigColor = bigSign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-      this.particles.burst(midX, midY, bigColor, spawnCount * 6, 2, 350);
+      this.particles.burst(midX, midY, bigColor, Math.min(spawnCount * 4, 12), 2, 320);
     } else {
-      // Fallback
       this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
     }
 
@@ -358,22 +438,119 @@ export class CollisionSystem {
     }
 
     if (this.onSplit) this.onSplit();
-    if (this.onBallDestroyed) this.onBallDestroyed(smaller.frozen);
+    if (this.onBallDestroyed) {
+      if (ballA.frozen) this.onBallDestroyed(true);
+      if (ballB.frozen) this.onBallDestroyed(true);
+    }
   }
 
-  private handleSpecialCollision(ballA: JellyBall, ballB: JellyBall): void {
-    let special: JellyBall, target: JellyBall;
+  /** Build obstacle snapshot once per shrink — avoids rescanning the pool per spawn. */
+  private buildObstacleList(
+    alreadyPlaced: { x: number; y: number; radius: number }[]
+  ): { x: number; y: number; radius: number }[] {
+    const obstacles = [...alreadyPlaced];
+    this.forEachActiveBall((ball) => {
+      obstacles.push({
+        x: ball.poolKind === 'anchor' ? ball.anchorX : ball.body!.position.x,
+        y: ball.poolKind === 'anchor' ? ball.anchorY : ball.body!.position.y,
+        radius: ball.radius,
+      });
+    });
+    return obstacles;
+  }
+
+  /** Find a non-overlapping position for a pinned (frozen) split spawn. */
+  private findPinnedSpawnPosition(
+    originX: number,
+    originY: number,
+    absValue: number,
+    obstacles: { x: number; y: number; radius: number }[],
+    alreadyPlaced: { x: number; y: number; radius: number }[]
+  ): { x: number; y: number } {
+    const scene = this.scene as any;
+    const bounds = {
+      left: (scene.containerLeft ?? CONTAINER_LEFT) + 4,
+      right: (scene.containerRight ?? CONTAINER_RIGHT) - 4,
+      top: CONTAINER_TOP + 36,
+      bottom: (scene.containerBottom ?? CONTAINER_BOTTOM) - 8,
+    };
+
+    const radius = getBallRadius(absValue);
+    const gap = 10;
+
+    const fits = (x: number, y: number): boolean => {
+      if (x - radius < bounds.left || x + radius > bounds.right) return false;
+      if (y - radius < bounds.top || y + radius > bounds.bottom) return false;
+      for (let o = 0; o < obstacles.length; o++) {
+        const obs = obstacles[o];
+        const dx = x - obs.x;
+        const dy = y - obs.y;
+        const minDist = radius + obs.radius + gap;
+        if (dx * dx + dy * dy < minDist * minDist) return false;
+      }
+      for (let p = 0; p < alreadyPlaced.length; p++) {
+        const obs = alreadyPlaced[p];
+        const dx = x - obs.x;
+        const dy = y - obs.y;
+        const minDist = radius + obs.radius + gap;
+        if (dx * dx + dy * dy < minDist * minDist) return false;
+      }
+      return true;
+    };
+
+    if (fits(originX, originY)) return { x: originX, y: originY };
+
+    for (let ring = 1; ring <= 8; ring++) {
+      const dist = radius * 2 + gap + (ring - 1) * 32;
+      const steps = 8 + ring * 2;
+      for (let i = 0; i < steps; i++) {
+        const angle = (i / steps) * Math.PI * 2 + ring * 0.35;
+        const x = originX + Math.cos(angle) * dist;
+        const y = originY + Math.sin(angle) * dist;
+        if (fits(x, y)) return { x, y };
+      }
+    }
+
+    for (let row = 0; row < 6; row++) {
+      const dy = (row + 1) * (radius * 2 + gap);
+      for (const sign of [-1, 1]) {
+        const y = originY + sign * dy;
+        for (const dx of [0, radius + gap, -(radius + gap), (radius + gap) * 2, -(radius + gap) * 2]) {
+          const x = originX + dx;
+          if (fits(x, y)) return { x, y };
+        }
+      }
+    }
+
+    return { x: originX, y: originY - radius * 2 - gap * 2 };
+  }
+
+  private handleSpecialCollision(ballA: BallEntity, ballB: BallEntity): void {
+    let special: JellyBall;
+    let target: BallEntity;
 
     if (ballA.special) {
-      special = ballA;
+      special = ballA as JellyBall;
       target = ballB;
     } else {
-      special = ballB;
+      special = ballB as JellyBall;
       target = ballA;
     }
 
     // Don't process special vs special
     if (target.special) return;
+
+    // Specials cannot affect anchored blocks — deflect and consume the special
+    if (target.frozen) {
+      const hitX = special.body!.position.x;
+      const hitY = special.body!.position.y;
+      this.particles.burst(hitX, hitY, 0x4488ff, 10, 2.5, 350);
+      this.floatingText.show(hitX, hitY - 28, 'BLOCKED!', '#4488ff', 18, 700);
+      target.playSquash();
+      special.deactivate();
+      this.ballPool.release(special);
+      return;
+    }
 
     const x = target.body!.position.x;
     const y = target.body!.position.y;
@@ -448,7 +625,7 @@ export class CollisionSystem {
       this.particles.burst(x, y, 0x00ccff, 20, 3.5, 450);
       this.floatingText.show(x, y - 30, '×2 MULTIPLIER!', '#00f0ff', 24, 800);
 
-      if (this.onFusion) this.onFusion(newAbsVal);
+      if (this.onFusion) this.onFusion(newValue);
     } else if (special.special === 'divide') {
       // ÷2: split target into two smaller balls
       const halfAbsVal = target.absValue / 2;
@@ -504,22 +681,18 @@ export class CollisionSystem {
 
       // 4. Vaporize nearby balls
       const explosionRadius = Math.max(100, target.radius * 3.0);
-      const activeBalls = Array.from(this.ballPool.getActiveItems());
-      activeBalls.forEach(ball => {
-        if (ball.active && ball !== special && ball.body) {
-          const bx = ball.body.position.x;
-          const by = ball.body.position.y;
-          const dist = Phaser.Math.Distance.Between(hitX, hitY, bx, by);
-          if (dist <= explosionRadius) {
-            // Vaporize ball
-            const color = ball.sign > 0 ? 0x00ff88 : 0xff3388;
-            this.particles.burst(bx, by, color, 12, 2.0, 350);
-            
-            ball.deactivate();
-            this.ballPool.release(ball);
-          }
+      for (const ball of this.ballPool.getActiveItems()) {
+        if (!ball.active || ball === special || !ball.body || ball.frozen) continue;
+        const bx = ball.body.position.x;
+        const by = ball.body.position.y;
+        const dist = Phaser.Math.Distance.Between(hitX, hitY, bx, by);
+        if (dist <= explosionRadius) {
+          const color = ball.sign > 0 ? 0x00ff88 : 0xff3388;
+          this.particles.burst(bx, by, color, 12, 2.0, 350);
+          ball.deactivate();
+          this.ballPool.release(ball);
         }
-      });
+      }
     } else if (special.special === 'slice') {
       const hitX = target.body!.position.x;
       const hitY = target.body!.position.y;
@@ -530,7 +703,7 @@ export class CollisionSystem {
 
       // Deactivate target and slice ball
       target.deactivate();
-      this.ballPool.release(target);
+      this.releaseBall(target);
       special.deactivate();
       this.ballPool.release(special);
 
@@ -601,9 +774,5 @@ export class CollisionSystem {
     // Remove special ball
     special.deactivate();
     this.ballPool.release(special);
-  }
-
-  destroy(): void {
-    this.scene.matter.world.off('collisionstart', this.onCollision, this);
   }
 }
