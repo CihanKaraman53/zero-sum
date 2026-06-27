@@ -22,10 +22,12 @@ import { HUD } from '../ui/HUD';
 import { NextQueue } from '../ui/NextQueue';
 
 import { 
-  BALL_POOL_SIZE, ANCHOR_POOL_SIZE, CONTAINER_LEFT, CONTAINER_RIGHT, 
+  CONTAINER_LEFT, CONTAINER_RIGHT, 
   CONTAINER_BOTTOM, CONTAINER_TOP, FIXED_TIMESTEP,
-  GAME_WIDTH, GAME_HEIGHT, OVERFLOW_Y, GRAVITY_Y, getBallRadius
+  GAME_WIDTH, GAME_HEIGHT, OVERFLOW_Y, GRAVITY_Y, getBallRadius, CAT_WALL, CAT_BALL, CAT_ANCHOR
 } from '../core/Constants';
+import { gamePools } from '../core/GamePools';
+import { devWarn } from '../core/Production';
 import { LEVEL_CONTAINER_BOTTOMS, LEVEL_CONTAINER_HALF_WIDTHS } from '../data/levels';
 
 export class GameScene extends Phaser.Scene {
@@ -110,33 +112,28 @@ export class GameScene extends Phaser.Scene {
     this.particles = new ParticleManager(this);
     this.floatingText = new FloatingText(this);
 
-    // 2. Initialize Pools (before LevelManager — spawn logic may read active balls)
-    this.ballPool = new ObjectPool<JellyBall>(
-      () => new JellyBall(this),
-      (b) => b.deactivate(),
-      BALL_POOL_SIZE
-    );
-    this.anchorPool = new ObjectPool<AnchorBall>(
-      () => new AnchorBall(this),
-      (a) => a.deactivate(),
-      ANCHOR_POOL_SIZE
-    );
+    // 2. Session-scoped pools — pre-allocated once, never mid-game factory()
+    const pools = gamePools.ensure(this);
+    this.ballPool = pools.ball;
+    this.anchorPool = pools.anchor;
 
     // 3. Initialize Core Systems
     this.scoring = new ScoringSystem(this);
     this.levelManager = new LevelManager(this.scoring);
     this.levelManager.getActiveBallValues = () => {
-      return Array.from(this.ballPool.getActiveItems()).map(b => b.value);
+      const vals: number[] = [];
+      this.ballPool.forEachActive((b) => vals.push(b.value));
+      return vals;
     };
     this.levelManager.getActiveBallCount = () => this.ballPool.getActiveCount();
     this.levelManager.getActiveFrozenCount = () => {
       let count = 0;
-      for (const b of this.ballPool.getActiveItems()) {
+      this.ballPool.forEachActive((b) => {
         if (b.active && b.frozen) count++;
-      }
-      for (const a of this.anchorPool.getActiveItems()) {
+      });
+      this.anchorPool.forEachActive((a) => {
         if (a.active) count++;
-      }
+      });
       return count;
     };
     this.combo = new ComboSystem(this, () => {
@@ -380,13 +377,11 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Fixed timestep integration for smooth physics regardless of framerate
+    // One game-logic tick per frame — matches runner.maxUpdates: 1 (no catch-up spiral)
     this.fixedAccumulator += delta;
-    while (this.fixedAccumulator >= FIXED_TIMESTEP) {
-      // Step systems that require fixed logic
-      this.background.update(time);
+    if (this.fixedAccumulator >= FIXED_TIMESTEP) {
       if (!this.isLevelTransitioning) {
-        this.launcher.update(time, null); // Pointer move handled separately
+        this.launcher.update(time, null);
       }
       this.particles.update(FIXED_TIMESTEP);
       this.combo.update(time);
@@ -403,15 +398,18 @@ export class GameScene extends Phaser.Scene {
         this.overflowSys.update(FIXED_TIMESTEP);
       }
 
-      this.collisionSys.clearProcessed();
-
       this.fixedAccumulator -= FIXED_TIMESTEP;
     }
+    if (this.fixedAccumulator > FIXED_TIMESTEP * 2) {
+      this.fixedAccumulator = 0;
+    }
+
+    this.background.update(time);
 
     // Sync dynamic jelly balls only — AnchorBall has no per-frame sync loop
-    for (const ball of this.ballPool.getActiveItems()) {
+    this.ballPool.forEachActive((ball) => {
       if (ball.active && !ball.frozen) ball.syncPosition();
-    }
+    });
 
     if (this.levelManager.currentLevelIndex === 8 && !this.isLevelTransitioning && !this.isGameOver) {
       this.geyserSys.setVisible(true);
@@ -423,14 +421,10 @@ export class GameScene extends Phaser.Scene {
     // Tutorial dynamic visual updates
     if (this.levelManager.currentLevelIndex === 0) {
       if (this.tutorialStep === 2 && this.tutorialArrow) {
-        const balls = this.ballPool.getActiveItems();
         let ball2: JellyBall | undefined;
-        for (const b of balls) {
-          if (b.value === 2) {
-            ball2 = b;
-            break;
-          }
-        }
+        this.ballPool.forEachActive((b) => {
+          if (!ball2 && b.value === 2) ball2 = b;
+        });
         if (ball2 && ball2.body) {
           this.tutorialArrow.setPosition(ball2.body.position.x, ball2.body.position.y - 50);
           this.tutorialArrow.setVisible(true);
@@ -438,14 +432,10 @@ export class GameScene extends Phaser.Scene {
           this.tutorialArrow.setVisible(false);
         }
       } else if (this.tutorialStep === 4) {
-        const balls = this.ballPool.getActiveItems();
         let ball8: JellyBall | undefined;
-        for (const b of balls) {
-          if (b.value === 8) {
-            ball8 = b;
-            break;
-          }
-        }
+        this.ballPool.forEachActive((b) => {
+          if (!ball8 && b.value === 8) ball8 = b;
+        });
         if (ball8 && ball8.body) {
           if (!this.tutorialText) {
             this.tutorialText = this.add.text(ball8.body.position.x, ball8.body.position.y - 70, "Match Opposites to Clear!", {
@@ -476,14 +466,10 @@ export class GameScene extends Phaser.Scene {
       }
     } else if (this.levelManager.currentLevelIndex === 1) {
       if (this.tutorial2Step === 2) {
-        const balls = this.ballPool.getActiveItems();
         let ball16: JellyBall | undefined;
-        for (const b of balls) {
-          if (Math.abs(b.value) === 16) {
-            ball16 = b;
-            break;
-          }
-        }
+        this.ballPool.forEachActive((b) => {
+          if (!ball16 && Math.abs(b.value) === 16) ball16 = b;
+        });
         if (ball16 && ball16.body) {
           if (!this.tutorialText) {
             this.tutorialText = this.add.text(ball16.body.position.x, ball16.body.position.y - 75, "Hit with a lower negative to SPLIT!", {
@@ -685,7 +671,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupWalls() {
-    const wallOpts = { isStatic: true, restitution: 0.2, friction: 0.1 };
+    const wallOpts = {
+      isStatic: true,
+      restitution: 0.2,
+      friction: 0.1,
+      collisionFilter: { category: CAT_WALL, mask: CAT_BALL | CAT_WALL | CAT_ANCHOR },
+    };
     
     // Bottom
     this.bottomWall = this.matter.add.rectangle(
@@ -732,7 +723,11 @@ export class GameScene extends Phaser.Scene {
         this.floatingText,
         this.particles,
         () => this.levelManager.getGravity(),
-        () => Array.from(this.ballPool.getActiveItems()),
+        () => {
+          const out: JellyBall[] = [];
+          this.ballPool.forEachActive((b) => out.push(b));
+          return out;
+        },
         (enabled) => this.setMainWallsEnabled(enabled)
       );
       this.invertedBucketSys.start(
@@ -811,24 +806,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearAllBoardBalls(withBurst = false): void {
-    for (const ball of this.ballPool.getActiveItems()) {
-      if (!ball.active || !ball.body) continue;
-      if (withBurst) {
+    if (withBurst) {
+      this.ballPool.forEachActive((ball) => {
+        if (!ball.active || !ball.body) return;
         const color = ball.sign > 0 ? 0x00ff88 : 0xff3388;
         this.particles.burst(ball.body.position.x, ball.body.position.y, color, 12, 1.5, 300);
-      }
-      ball.deactivate();
-      this.ballPool.release(ball);
-    }
-    for (const anchor of this.anchorPool.getActiveItems()) {
-      if (!anchor.active) continue;
-      if (withBurst) {
+      });
+      this.anchorPool.forEachActive((anchor) => {
+        if (!anchor.active) return;
         const color = anchor.sign > 0 ? 0x00ff88 : 0xff3388;
         this.particles.burst(anchor.anchorX, anchor.anchorY, color, 12, 1.5, 300);
-      }
-      anchor.deactivate();
-      this.anchorPool.release(anchor);
+      });
     }
+    this.ballPool.releaseAll();
+    this.anchorPool.releaseAll();
+  }
+
+  /** In-place level reload — avoids scene.restart pool re-allocation spike. */
+  private reloadLevel(levelIndex: number): void {
+    this.clearAllBoardBalls(false);
+    this.isGameOver = false;
+    this.isLevelTransitioning = false;
+    this.fixedAccumulator = 0;
+    this.survivalFailPending = false;
+    this.matter.world.resume();
+    this.levelManager.loadLevel(levelIndex);
+    this.finishLevelStart();
   }
 
   private handleGameOver() {
@@ -970,7 +973,7 @@ export class GameScene extends Phaser.Scene {
           timerText.destroy();
 
           const nextLvlIndex = this.levelManager.currentLevelIndex + 1;
-          this.scene.restart({ levelIndex: nextLvlIndex });
+          this.reloadLevel(nextLvlIndex);
         }
       });
     };
@@ -1038,7 +1041,7 @@ export class GameScene extends Phaser.Scene {
       playTone(783.99, now + 0.2, 0.15); // G5
       playTone(1046.50, now + 0.3, 0.4); // C6
     } catch (e) {
-      console.warn("AudioContext error/blocked:", e);
+      devWarn('AudioContext error/blocked:', e);
     }
   }
 

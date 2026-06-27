@@ -110,20 +110,20 @@ export class GeyserSystem {
     const leftBandRight = containerLeft + this.columnWidth;
     const rightBandLeft = containerRight - this.columnWidth;
 
-    for (const ball of this.ballPool.getActiveItems()) {
-      if (!ball.active || !ball.body || ball.frozen) continue;
+    this.ballPool.forEachActive((ball) => {
+      if (!ball.active || !ball.body || ball.frozen) return;
 
       const bx = ball.body.position.x;
       const by = ball.body.position.y;
       const r = ball.radius;
 
       const inHeight = by + r > containerTop && by - r < containerBottom;
-      if (!inHeight) continue;
+      if (!inHeight) return;
 
       const inLeftCol = bx + r > containerLeft && bx - r < leftBandRight;
       const inRightCol = bx - r < containerRight && bx + r > rightBandLeft;
 
-      if (!inLeftCol && !inRightCol) continue;
+      if (!inLeftCol && !inRightCol) return;
 
       if (this.state === 'WARNING') {
         const vx = (Math.random() - 0.5) * 0.8;
@@ -136,7 +136,7 @@ export class GeyserSystem {
         const targetVx = pushDir * 0.8 + (Math.random() - 0.5) * 1.0;
         this.scene.matter.body.setVelocity(ball.body, { x: targetVx, y: targetVy });
       }
-    }
+    });
   }
 
   private updateParticles(delta: number): void {

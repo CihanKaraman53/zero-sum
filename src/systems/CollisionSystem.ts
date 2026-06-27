@@ -16,6 +16,11 @@ export interface CollisionResult {
   points: number;
 }
 
+
+const JELLY_LABEL = 'jellyball';
+
+type CollisionPair = { bodyA: MatterJS.BodyType; bodyB: MatterJS.BodyType };
+
 /**
  * CollisionSystem — handles all jelly ball collision logic.
  * Merge (same sign + same value), Zero Sum (opposite sign + same value),
@@ -30,10 +35,12 @@ export class CollisionSystem {
   scoring: ScoringSystem;
   combo: ComboSystem;
 
-  // Prevent double-processing within one collision event batch
-  private processedPairs: Set<string> = new Set();
-  private readonly onCollisionStart = (event: any) => this.onCollision(event, true);
-  private readonly onCollisionActive = (event: any) => this.onCollision(event, false);
+  /** Numeric pair keys — no string allocation per collision. */
+  private processedPairs = new Set<number>();
+  /** Ball-ball pairs queued during collisionstart; resolved after the Matter step. */
+  private pendingPairs: CollisionPair[] = [];
+  private readonly onCollisionStart = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
+  private readonly onAfterUpdate = () => this.flushPendingCollisions();
   // Fusion callback for level manager
   onFusion: ((value: number) => void) | null = null;
   onBallDestroyed: ((wasFrozen: boolean) => void) | null = null;
@@ -57,29 +64,28 @@ export class CollisionSystem {
     this.scoring = scoring;
     this.combo = combo;
 
-    // Matter.js lifecycle only — no polling in update()
+    // collisionstart only — collisionactive re-scans every resting pair each step (heavy on L10 piles)
     this.scene.matter.world.on('collisionstart', this.onCollisionStart);
-    this.scene.matter.world.on('collisionactive', this.onCollisionActive);
+    // Defer merge/shrink/spawn to afterUpdate so bodies are not mutated mid-Engine.update
+    this.scene.matter.world.on('afterupdate', this.onAfterUpdate);
   }
 
   clearProcessed(): void {
     this.processedPairs.clear();
+    this.pendingPairs.length = 0;
   }
 
   destroy(): void {
     this.scene.matter.world.off('collisionstart', this.onCollisionStart);
-    this.scene.matter.world.off('collisionactive', this.onCollisionActive);
+    this.scene.matter.world.off('afterupdate', this.onAfterUpdate);
   }
 
-  private getBall(body: any): BallEntity | null {
-    if (!body) return null;
-    if (body.gameBall) return body.gameBall;
-    if (body.jellyBall) return body.jellyBall;
-    if (body.parent?.gameBall) return body.parent.gameBall;
-    if (body.parent?.jellyBall) return body.parent.jellyBall;
-    if (body.gameObject?.gameBall) return body.gameObject.gameBall;
-    if (body.gameObject?.jellyBall) return body.gameObject.jellyBall;
-    return null;
+  private getBall(body: MatterJS.BodyType): BallEntity | null {
+    return (body as MatterJS.Body & { gameBall?: BallEntity }).gameBall ?? null;
+  }
+
+  private pairKey(idA: number, idB: number): number {
+    return idA < idB ? idA * 65536 + idB : idB * 65536 + idA;
   }
 
   private releaseBall(ball: BallEntity): void {
@@ -92,82 +98,88 @@ export class CollisionSystem {
   }
 
   private forEachActiveBall(fn: (ball: BallEntity) => void): void {
-    for (const ball of this.ballPool.getActiveItems()) {
-      if (ball.active) fn(ball);
-    }
-    for (const anchor of this.anchorPool.getActiveItems()) {
-      if (anchor.active) fn(anchor);
+    this.ballPool.forEachActive(fn);
+    this.anchorPool.forEachActive(fn);
+  }
+
+  private queueCollisions(event: { pairs: CollisionPair[] }): void {
+    const pairs = event.pairs;
+    const len = pairs.length;
+    for (let i = 0; i < len; i++) {
+      const pair = pairs[i];
+      const labelA = pair.bodyA.label;
+      const labelB = pair.bodyB.label;
+
+      const aIsBall = labelA === JELLY_LABEL;
+      const bIsBall = labelB === JELLY_LABEL;
+      if (!aIsBall && !bIsBall) continue;
+
+      // Wall/obstacle squash only — no body add/remove
+      if (!aIsBall || !bIsBall) {
+        const ball = aIsBall ? this.getBall(pair.bodyA) : this.getBall(pair.bodyB);
+        if (ball?.active) ball.playSquash();
+        continue;
+      }
+
+      this.pendingPairs.push(pair);
     }
   }
 
-  private onCollision(event: any, isStart: boolean): void {
-    const pairs = event.pairs;
-    for (let i = 0; i < pairs.length; i++) {
-      const pair = pairs[i];
-      const bodyA = pair.bodyA;
-      const bodyB = pair.bodyB;
+  private flushPendingCollisions(): void {
+    const pending = this.pendingPairs;
+    const len = pending.length;
+    if (len === 0) return;
 
-      if (bodyA.label !== 'jellyball' || bodyB.label !== 'jellyball') {
-        if (isStart) {
-          const ball = bodyA.label === 'jellyball' ? this.getBall(bodyA) :
-                       bodyB.label === 'jellyball' ? this.getBall(bodyB) : null;
-          if (ball && ball.active) {
-            ball.playSquash();
-          }
-        }
-        continue;
-      }
-
-      const ballA = this.getBall(bodyA);
-      const ballB = this.getBall(bodyB);
-
-      if (!ballA || !ballB || !ballA.active || !ballB.active) continue;
-
-      const pairId = bodyA.id < bodyB.id ? `${bodyA.id}_${bodyB.id}` : `${bodyB.id}_${bodyA.id}`;
-      if (this.processedPairs.has(pairId)) continue;
-
-      if (ballA.frozen || ballB.frozen) {
-        if (ballA.frozen && ballB.frozen) {
-          if (isStart) {
-            this.processedPairs.add(pairId);
-            ballA.playSquash();
-            ballB.playSquash();
-          }
-          continue;
-        }
-        if (!isStart) continue;
-        this.processedPairs.add(pairId);
-        const anchor = ballA.frozen ? ballA : ballB;
-        const dynamic = ballA.frozen ? ballB : ballA;
-        if ((dynamic as JellyBall).special) {
-          this.handleSpecialCollision(dynamic as JellyBall, anchor);
-        } else {
-          this.processAnchorCollision(anchor, dynamic);
-        }
-        continue;
-      }
-
-      if (ballA.special || ballB.special) {
-        this.processedPairs.add(pairId);
-        this.handleSpecialCollision(ballA, ballB);
-        continue;
-      }
-
-      const sameSign = ballA.sign === ballB.sign;
-      const sameValue = ballA.absValue === ballB.absValue;
-
-      if (sameSign && !sameValue) {
-        if (isStart) {
-          this.processedPairs.add(pairId);
-          ballA.playSquash();
-          ballB.playSquash();
-        }
-        continue;
-      }
-
-      this.processedPairs.add(pairId);
-      this.processCollision(ballA, ballB);
+    for (let i = 0; i < len; i++) {
+      this.processBallBallCollision(pending[i]);
     }
+    pending.length = 0;
+    this.processedPairs.clear();
+  }
+
+  private processBallBallCollision(pair: CollisionPair): void {
+    const bodyA = pair.bodyA;
+    const bodyB = pair.bodyB;
+
+    const ballA = this.getBall(bodyA);
+    const ballB = this.getBall(bodyB);
+    if (!ballA || !ballB || !ballA.active || !ballB.active) return;
+
+    const pairId = this.pairKey(bodyA.id, bodyB.id);
+    if (this.processedPairs.has(pairId)) return;
+    this.processedPairs.add(pairId);
+
+    if (ballA.frozen || ballB.frozen) {
+      if (ballA.frozen && ballB.frozen) {
+        ballA.playSquash();
+        ballB.playSquash();
+        return;
+      }
+      const anchor = ballA.frozen ? ballA : ballB;
+      const dynamic = ballA.frozen ? ballB : ballA;
+      if ((dynamic as JellyBall).special) {
+        this.handleSpecialCollision(dynamic as JellyBall, anchor);
+      } else {
+        this.processAnchorCollision(anchor, dynamic);
+      }
+      return;
+    }
+
+    if (ballA.special || ballB.special) {
+      this.handleSpecialCollision(ballA, ballB);
+      return;
+    }
+
+    const sameSign = ballA.sign === ballB.sign;
+    const sameValue = ballA.absValue === ballB.absValue;
+
+    if (sameSign && !sameValue) {
+      ballA.playSquash();
+      ballB.playSquash();
+      return;
+    }
+
+    this.processCollision(ballA, ballB);
   }
 
   private processAnchorCollision(anchor: BallEntity, dynamic: BallEntity): void {
@@ -303,9 +315,17 @@ export class CollisionSystem {
     this.releaseBall(ballA);
     this.releaseBall(ballB);
 
-    // Epic explosion
-    this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
-    const isLevel3 = (this.scene as any).levelManager?.currentLevelIndex === 2;
+    const levelIndex = (this.scene as any).levelManager?.currentLevelIndex;
+    const isLevel3 = levelIndex === 2;
+    const isLevel10 = levelIndex === 9;
+
+    // Epic explosion — lighter on L10 (many anchor hits in a row)
+    if (isLevel10) {
+      this.particles.burst(midX, midY, POSITIVE_COLOR, 6, 3, 350);
+      this.particles.burst(midX, midY, NEGATIVE_COLOR, 4, 2.5, 300);
+    } else {
+      this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
+    }
 
     if (isLevel3) {
       this.floatingText.show(midX, midY - 20, '+500 ZERO SUM!', '#ffffff', 26, 1000);
@@ -313,8 +333,10 @@ export class CollisionSystem {
       this.floatingText.showZeroSum(midX, midY - 20);
     }
 
-    // Screen shake
-    this.scene.cameras.main.shake(200, 0.008 + absVal * 0.001);
+    // Screen shake — skip on L10 (anchor clears chain = constant shake stutter)
+    if (!isLevel10) {
+      this.scene.cameras.main.shake(200, 0.008 + absVal * 0.001);
+    }
 
     // Score
     const time = this.scene.time.now;
@@ -681,8 +703,8 @@ export class CollisionSystem {
 
       // 4. Vaporize nearby balls
       const explosionRadius = Math.max(100, target.radius * 3.0);
-      for (const ball of this.ballPool.getActiveItems()) {
-        if (!ball.active || ball === special || !ball.body || ball.frozen) continue;
+      this.ballPool.forEachActive((ball) => {
+        if (!ball.active || ball === special || !ball.body || ball.frozen) return;
         const bx = ball.body.position.x;
         const by = ball.body.position.y;
         const dist = Phaser.Math.Distance.Between(hitX, hitY, bx, by);
@@ -692,7 +714,7 @@ export class CollisionSystem {
           ball.deactivate();
           this.ballPool.release(ball);
         }
-      }
+      });
     } else if (special.special === 'slice') {
       const hitX = target.body!.position.x;
       const hitY = target.body!.position.y;

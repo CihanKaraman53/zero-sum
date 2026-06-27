@@ -4,18 +4,25 @@ import { MenuScene } from './scenes/MenuScene';
 import { LevelSelectScene } from './scenes/LevelSelectScene';
 import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
-import { GAME_WIDTH, GAME_HEIGHT, GRAVITY_Y } from './core/Constants';
+import { GAME_WIDTH, GAME_HEIGHT, GRAVITY_Y, MATTER_DELTA } from './core/Constants';
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL, // Force WebGL for neon performance
+  type: Phaser.WEBGL,
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   backgroundColor: '#060515',
   parent: 'game-container',
+  antialias: true,
+  pixelArt: false,
+  render: {
+    antialias: true,
+    powerPreference: 'high-performance',
+    roundPixels: false,
+    autoMobileTextures: true,
+  },
   scale: {
     mode: Phaser.Scale.FIT,
-    // Flex on #game-container handles centering — Phaser margins fight flex and push right
-    autoCenter: Phaser.Scale.NO_CENTER,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
   },
@@ -24,18 +31,42 @@ const config: Phaser.Types.Core.GameConfig = {
     matter: {
       gravity: { x: 0, y: GRAVITY_Y },
       debug: false,
-      enableSleeping: false, // Balls are constantly moving slightly, sleeping breaks collision flow
+      enableSleeping: true,
+      positionIterations: 4,
+      velocityIterations: 2,
+      constraintIterations: 1,
+      getDelta: () => MATTER_DELTA,
+      autoUpdate: true,
+      runner: {
+        fps: 60,
+        delta: MATTER_DELTA,
+        maxUpdates: 1,
+        maxFrameTime: MATTER_DELTA,
+        frameDeltaSmoothing: false,
+        frameDeltaSnapping: false,
+      },
     }
   },
   fps: {
     target: 60,
-    forceSetTimeOut: true
+    forceSetTimeOut: false,
   },
   scene: [BootScene, MenuScene, LevelSelectScene, GameScene, GameOverScene]
 };
 
 const game = new Phaser.Game(config);
 
-window.addEventListener('resize', () => {
+const refreshLayout = () => {
   game.scale.refresh();
-});
+};
+
+game.events.once('ready', refreshLayout);
+
+window.addEventListener('resize', refreshLayout);
+window.addEventListener('orientationchange', refreshLayout);
+window.visualViewport?.addEventListener('resize', refreshLayout);
+
+const container = document.getElementById('game-container');
+if (container && typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(refreshLayout).observe(container);
+}

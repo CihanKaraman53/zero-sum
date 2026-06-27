@@ -91,8 +91,7 @@ export class BlackHoleSystem {
     const centerX = CONTAINER_CENTER_X;
     const centerY = CONTAINER_CENTER_Y;
 
-    const activeBalls = this.ballPool.getActiveItems();
-    activeBalls.forEach((ball) => {
+    this.ballPool.forEachActive((ball) => {
       if (!ball.active || !ball.body || ball.frozen) return;
 
       const bx = ball.body.position.x;
@@ -177,8 +176,7 @@ export class BlackHoleSystem {
 
     // Outward shockwave
     const pushStrength = 0.01;
-    const activeBalls = this.ballPool.getActiveItems();
-    activeBalls.forEach((ball) => {
+    this.ballPool.forEachActive((ball) => {
       if (!ball.active || !ball.body || ball.frozen) return;
       const bx = ball.body.position.x;
       const by = ball.body.position.y;

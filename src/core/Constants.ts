@@ -9,6 +9,14 @@ import Phaser from 'phaser';
 export const GAME_WIDTH = 480;
 export const GAME_HEIGHT = 854;
 
+/** Cap retina multiplier — 2x keeps mobile sharp without 3x GPU cost. */
+export const MAX_RENDER_DPR = 2;
+
+export function getRenderResolution(): number {
+  if (typeof window === 'undefined') return 1;
+  return Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR);
+}
+
 // ── Container (play area) ──
 export const CONTAINER_LEFT = 40;
 export const CONTAINER_RIGHT = GAME_WIDTH - 40;
@@ -53,11 +61,15 @@ export const OVERFLOW_COLOR = 0xff2244;
 // ── Physics ──
 export const GRAVITY_Y = 1.2;
 export const FIXED_TIMESTEP = 16.666; // 60 FPS in ms
+/** Fixed delta passed to Matter.Engine.update — never scales with frame lag. */
+export const MATTER_DELTA = FIXED_TIMESTEP;
 
 // ── Collision categories (bit flags) ──
 export const CAT_BALL = 0x0001;
 export const CAT_WALL = 0x0002;
 export const CAT_SENSOR = 0x0004;
+/** Static level anchors — skip anchor↔anchor broadphase pairs. */
+export const CAT_ANCHOR = 0x0008;
 
 // ── Pool sizes ──
 export const BALL_POOL_SIZE = 50;

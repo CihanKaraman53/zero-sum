@@ -36,14 +36,22 @@ export class BootScene extends Phaser.Scene {
     
     // Load launcher texture
     this.load.image('launcher', 'assets/launcher.png');
-    // For King balls, we can tint the positive ball or keep a separate asset, but we'll use a tint for now.
-    
-    // Load custom font (Orbitron) via a dummy text to ensure it's loaded by the browser
-    // Assuming Orbitron is imported in index.html (we will add it there or via WebFont loader)
-    // For this implementation, we just wait a short moment and transition.
+  }
+
+  private applyTextureFilters(): void {
+    const keys = [
+      'positive_ball', 'negative_ball', 'x2_ball', 'blast_ball',
+      'slice_ball', 'dice_ball', 'magnet_ball', 'ghost_ball', 'launcher',
+    ];
+    for (const key of keys) {
+      if (this.textures.exists(key)) {
+        this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR);
+      }
+    }
   }
 
   create() {
+    this.applyTextureFilters();
     // Add a small delay to ensure fonts render correctly
     this.time.delayedCall(500, () => {
       this.scene.start('MenuScene');
