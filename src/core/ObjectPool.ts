@@ -1,63 +1,95 @@
 /**
- * Generic Object Pool - zero GC allocations during gameplay.
- * Pre-allocates objects at scene boot, recycles them during play.
+ * Fixed-capacity object pool — zero allocations during gameplay.
+ * Pre-allocates once at construction; never calls factory() after that.
  */
 export class ObjectPool<T> {
-  private pool: T[] = [];
-  private active: Set<T> = new Set();
-  private factory: () => T;
-  private resetFn: (obj: T) => void;
+  private readonly items: T[];
+  private readonly freeStack: number[];
+  private freeTop: number;
+  private readonly activeList: T[];
+  private activeCount = 0;
+  private readonly resetFn: (obj: T) => void;
 
-  constructor(factory: () => T, resetFn: (obj: T) => void, initialSize: number = 0) {
-    this.factory = factory;
+  constructor(factory: () => T, resetFn: (obj: T) => void, capacity: number) {
     this.resetFn = resetFn;
-    this.preAllocate(initialSize);
-  }
+    this.items = new Array(capacity);
+    this.freeStack = new Array(capacity);
+    this.activeList = new Array(capacity);
+    this.freeTop = capacity - 1;
 
-  preAllocate(count: number): void {
-    for (let i = 0; i < count; i++) {
-      const obj = this.factory();
-      this.resetFn(obj);
-      this.pool.push(obj);
+    for (let i = 0; i < capacity; i++) {
+      const obj = factory();
+      resetFn(obj);
+      this.items[i] = obj;
+      this.freeStack[i] = i;
+      (obj as PoolSlot).poolSlot = i;
+      (obj as PoolSlot).activeIdx = -1;
     }
   }
 
   acquire(): T | null {
-    let obj: T;
-    if (this.pool.length > 0) {
-      obj = this.pool.pop()!;
-    } else {
-      // Emergency: create one more (shouldn't happen with proper pre-allocation)
-      obj = this.factory();
-    }
-    this.active.add(obj);
+    if (this.freeTop < 0) return null;
+
+    const slot = this.freeStack[this.freeTop--];
+    const obj = this.items[slot];
+    const idx = this.activeCount++;
+    (obj as PoolSlot).activeIdx = idx;
+    this.activeList[idx] = obj;
     return obj;
   }
 
   release(obj: T): void {
-    if (!this.active.has(obj)) return;
-    this.active.delete(obj);
+    const slot = (obj as PoolSlot).poolSlot;
+    const activeIdx = (obj as PoolSlot).activeIdx;
+    if (slot === undefined || activeIdx < 0) return;
+
     this.resetFn(obj);
-    this.pool.push(obj);
+    (obj as PoolSlot).activeIdx = -1;
+
+    const last = --this.activeCount;
+    if (activeIdx !== last) {
+      const moved = this.activeList[last];
+      this.activeList[activeIdx] = moved;
+      (moved as PoolSlot).activeIdx = activeIdx;
+    }
+
+    this.freeStack[++this.freeTop] = slot;
   }
 
   releaseAll(): void {
-    this.active.forEach(obj => {
+    for (let i = 0; i < this.activeCount; i++) {
+      const obj = this.activeList[i];
       this.resetFn(obj);
-      this.pool.push(obj);
-    });
-    this.active.clear();
+      (obj as PoolSlot).activeIdx = -1;
+      this.freeStack[++this.freeTop] = (obj as PoolSlot).poolSlot!;
+    }
+    this.activeCount = 0;
   }
 
   getActiveCount(): number {
-    return this.active.size;
+    return this.activeCount;
+  }
+
+  /** Iterate live objects — zero allocation. */
+  forEachActive(fn: (item: T) => void): void {
+    for (let i = 0; i < this.activeCount; i++) {
+      fn(this.activeList[i]);
+    }
+  }
+
+  /** Iterate every pre-allocated slot (for scene rebind after shutdown). */
+  forEachAll(fn: (item: T) => void): void {
+    for (let i = 0; i < this.items.length; i++) {
+      fn(this.items[i]);
+    }
   }
 
   getPoolSize(): number {
-    return this.pool.length;
+    return this.freeTop + 1;
   }
+}
 
-  getActiveItems(): Set<T> {
-    return this.active;
-  }
+interface PoolSlot {
+  poolSlot?: number;
+  activeIdx: number;
 }

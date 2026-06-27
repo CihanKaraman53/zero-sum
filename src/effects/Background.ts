@@ -20,6 +20,8 @@ export class Background {
   private overflowGfx: Phaser.GameObjects.Graphics;
   private vignetteGfx: Phaser.GameObjects.Graphics;
   private gridOffset: number = 0;
+  private lastGridStep: number = -1;
+  private overflowTick: number = 0;
   private twistTween?: Phaser.Tweens.Tween;
   private wallPulseTween?: Phaser.Tweens.Tween;
   private isTwisted = false;
@@ -61,8 +63,16 @@ export class Background {
 
   update(time: number): void {
     this.gridOffset = (time * 0.01) % 40;
-    this.drawGrid();
-    this.drawOverflowLine(time);
+    const gridStep = Math.floor(this.gridOffset / 4);
+    if (gridStep !== this.lastGridStep) {
+      this.lastGridStep = gridStep;
+      this.drawGrid();
+    }
+
+    this.overflowTick++;
+    if (this.overflowTick % 2 === 0) {
+      this.drawOverflowLine(time);
+    }
   }
 
   public updateContainerBounds(left: number, right: number, bottom: number): void {
@@ -371,7 +381,7 @@ export class Background {
   private drawOverflowLine(time: number): void {
     this.overflowGfx.clear();
     const levelIndex = (this.scene as any).levelManager?.currentLevelIndex;
-    if (levelIndex === 8) return;
+    if (levelIndex === 8 || levelIndex === 9) return;
 
     const alpha = 0.4 + 0.3 * Math.sin(time * 0.003);
     const overflowY = (this.scene as any).dynamicOverflowY ?? OVERFLOW_Y;

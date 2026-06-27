@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { getBallRadius, SPECIAL_COLOR, KING_COLOR, CAT_BALL, CAT_WALL } from '../core/Constants';
+import { getBallRadius, KING_COLOR, CAT_BALL, CAT_WALL, CAT_ANCHOR } from '../core/Constants';
 import { attachBallBody, BallEntity } from './BallEntity';
 
 const BASE_SCALE_CACHE = new Map<string, number>();
@@ -23,11 +23,11 @@ export class AnchorBall implements BallEntity {
   readonly poolKind = 'anchor' as const;
   scene: Phaser.Scene;
   body: MatterJS.BodyType | null = null;
-  container: Phaser.GameObjects.Container;
-  gfx: Phaser.GameObjects.Graphics;
-  sprite: Phaser.GameObjects.Sprite;
-  label: Phaser.GameObjects.Text;
-  crownGfx: Phaser.GameObjects.Graphics;
+  container!: Phaser.GameObjects.Container;
+  gfx!: Phaser.GameObjects.Graphics;
+  sprite!: Phaser.GameObjects.Sprite;
+  label!: Phaser.GameObjects.Text;
+  crownGfx!: Phaser.GameObjects.Graphics;
 
   value = 2;
   sign = 1;
@@ -46,18 +46,38 @@ export class AnchorBall implements BallEntity {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    this.initVisuals();
+  }
 
-    this.container = scene.add.container(0, 0);
+  rehydrate(scene: Phaser.Scene): void {
+    this.scene = scene;
+    if (this.container?.scene === scene) return;
+    this.active = false;
+    this.body = null;
+    if (this.squashTween) {
+      this.squashTween.stop();
+      this.squashTween = null;
+    }
+    this.wobbleScale = 0;
+    this.initVisuals();
+  }
+
+  private initVisuals(): void {
+    if (this.container) {
+      this.container.destroy(true);
+    }
+
+    this.container = this.scene.add.container(0, 0);
     this.container.setVisible(false);
     this.container.setDepth(10);
 
-    this.gfx = scene.add.graphics();
+    this.gfx = this.scene.add.graphics();
     this.container.add(this.gfx);
 
-    this.sprite = scene.add.sprite(0, 0, 'positive_ball');
+    this.sprite = this.scene.add.sprite(0, 0, 'positive_ball');
     this.container.add(this.sprite);
 
-    this.label = scene.add.text(0, 0, '', {
+    this.label = this.scene.add.text(0, 0, '', {
       fontFamily: '"Orbitron", "Courier New", monospace',
       fontSize: '16px',
       fontStyle: 'bold',
@@ -67,7 +87,7 @@ export class AnchorBall implements BallEntity {
     }).setOrigin(0.5);
     this.container.add(this.label);
 
-    this.crownGfx = scene.add.graphics();
+    this.crownGfx = this.scene.add.graphics();
     this.crownGfx.setVisible(false);
     this.container.add(this.crownGfx);
   }
@@ -89,7 +109,7 @@ export class AnchorBall implements BallEntity {
       friction: 0.1,
       ignoreGravity: true,
       collisionFilter: {
-        category: CAT_BALL,
+        category: CAT_ANCHOR,
         mask: CAT_BALL | CAT_WALL,
       },
       label: 'jellyball',
