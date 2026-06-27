@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { ScoringSystem } from '../systems/ScoringSystem';
 import { LevelManager } from '../systems/LevelManager';
-import { GAME_WIDTH, GAME_HEIGHT, CONTAINER_BORDER_COLOR } from '../core/Constants';
+import { GAME_WIDTH, GAME_HEIGHT, CONTAINER_TOP, LAUNCHER_Y } from '../core/Constants';
 
 /**
  * HUD — Heads Up Display.
@@ -18,8 +18,14 @@ export class HUD {
   private titleGlow!: Phaser.GameObjects.Text;
   private comboGroup!: Phaser.GameObjects.Container;
   private comboMultiplierText!: Phaser.GameObjects.Text;
+  private dropsText!: Phaser.GameObjects.Text;
+  private goalText!: Phaser.GameObjects.Text;
+  private surviveText!: Phaser.GameObjects.Text;
 
-
+  private cachedGoalText = '';
+  private cachedDropsText = '';
+  private cachedSurvivalText = '';
+  private cachedLevelNum = -1;
 
   constructor(scene: Phaser.Scene, scoring: ScoringSystem, levelManager: LevelManager) {
     this.scene = scene;
@@ -29,10 +35,13 @@ export class HUD {
     this.createTopLeft();
     this.createTitle();
     this.createComboTracker();
+    this.createDropsCounter();
+    this.createSurvivalTimer();
 
     // Set initial values
     this.updateScore(this.scoring.score, this.scoring.highScore);
     this.updateCombo(0);
+    this.updateDrops();
 
     // Listen to events instead of polling in update loop
     this.scene.events.on('score-changed', this.updateScore, this);
@@ -42,9 +51,98 @@ export class HUD {
     this.scene.events.once('shutdown', this.destroy, this);
   }
 
+  private flipCountdownHint: number | null = null;
+
+  setFlipCountdownHint(seconds: number | null): void {
+    this.flipCountdownHint = seconds;
+  }
+
   update(): void {
     const lvlNum = this.levelManager.currentLevelIndex + 1;
-    this.levelText.setText(`LEVEL ${lvlNum}`);
+    if (lvlNum !== this.cachedLevelNum) {
+      this.cachedLevelNum = lvlNum;
+      this.levelText.setText(`LEVEL ${lvlNum}`);
+    }
+    this.updateDrops();
+    this.updateGoal();
+    this.updateSurvival();
+    this.updateZeroSumGoal();
+  }
+
+  private setGoalText(text: string, visible: boolean): void {
+    if (text !== this.cachedGoalText) {
+      this.cachedGoalText = text;
+      this.goalText.setText(text);
+    }
+    this.goalText.setVisible(visible);
+  }
+
+  updateZeroSumGoal(): void {
+    if (!this.goalText) return;
+    const lvl = this.levelManager.currentLevel;
+    if (this.levelManager.hasZeroSumGoal()) {
+      const target = lvl.zeroSumTarget ?? 0;
+      this.setGoalText(`ZERO: ${this.levelManager.zeroSumCount}/${target}`, true);
+    } else if (this.levelManager.hasEmptyBoardGoal()) {
+      const count = this.levelManager.getActiveBallCount?.() ?? 0;
+      const flipHint = this.flipCountdownHint != null && this.flipCountdownHint > 0
+        ? ` | FLIP: ${this.flipCountdownHint}s`
+        : '';
+      this.setGoalText(`CLEAR: ${count} left${flipHint}`, true);
+    } else if (this.levelManager.hasAnchorClearGoal()) {
+      const left = this.levelManager.getActiveFrozenCount?.() ?? 0;
+      this.setGoalText(`ANCHORS: ${left} left`, true);
+    } else if (lvl.type === 'fusion_goal' && lvl.fusionTarget) {
+      if (this.levelManager.hasDualFusionGoal()) {
+        const t = lvl.fusionTarget;
+        const pos = this.levelManager.forgedPositiveFusion ? '✓' : '…';
+        const neg = this.levelManager.forgedNegativeFusion ? '✓' : '…';
+        this.setGoalText(`GOAL: +${t} ${pos}  -${t} ${neg}`, true);
+      } else {
+        this.setGoalText(`GOAL: +${lvl.fusionTarget}`, true);
+      }
+    } else {
+      if (this.cachedGoalText !== '') {
+        this.cachedGoalText = '';
+      }
+      this.goalText.setVisible(false);
+    }
+  }
+
+  updateSurvival(): void {
+    if (!this.surviveText) return;
+    if (this.levelManager.hasTimeSurvival()) {
+      const secs = this.levelManager.getSurvivalSecondsRemaining();
+      const text = `${secs}s`;
+      this.surviveText.setVisible(true);
+      if (text !== this.cachedSurvivalText) {
+        this.cachedSurvivalText = text;
+        this.surviveText.setText(text);
+      }
+      this.surviveText.setColor(secs <= 10 ? '#ff2244' : '#00f0ff');
+    } else {
+      this.cachedSurvivalText = '';
+      this.surviveText.setVisible(false);
+    }
+  }
+
+  updateGoal(): void {
+    this.updateZeroSumGoal();
+  }
+
+  updateDrops(): void {
+    if (!this.dropsText) return;
+    if (this.levelManager.hasDropLimit()) {
+      const text = `${this.levelManager.dropsRemaining}`;
+      this.dropsText.setVisible(true);
+      if (text !== this.cachedDropsText) {
+        this.cachedDropsText = text;
+        this.dropsText.setText(text);
+      }
+    } else {
+      this.cachedDropsText = '';
+      this.dropsText.setVisible(false);
+    }
   }
 
   private updateScore(score: number, highScore: number): void {
@@ -164,6 +262,54 @@ export class HUD {
     });
 
     this.comboGroup.add([label, this.comboMultiplierText]);
+  }
+
+  private createDropsCounter(): void {
+    const x = GAME_WIDTH - 16;
+    const y = LAUNCHER_Y - 8;
+
+    this.scene.add.text(x, y - 18, 'MOVES', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '11px',
+      color: '#888899',
+      fontStyle: 'bold',
+    }).setOrigin(1, 0.5).setDepth(30);
+
+    this.dropsText = this.scene.add.text(x, y + 6, '30', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '36px',
+      color: '#00ff88',
+      fontStyle: 'bold',
+      stroke: '#003322',
+      strokeThickness: 3,
+    }).setOrigin(1, 0.5).setDepth(30).setVisible(false);
+
+    this.goalText = this.scene.add.text(GAME_WIDTH / 2, LAUNCHER_Y + 55, '', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '16px',
+      color: '#ff3388',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(30).setVisible(false);
+  }
+
+  private createSurvivalTimer(): void {
+    this.scene.add.text(GAME_WIDTH / 2, 58, 'TIME', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '11px',
+      color: '#888899',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(31);
+
+    this.surviveText = this.scene.add.text(GAME_WIDTH / 2, 78, '', {
+      fontFamily: '"Orbitron", monospace',
+      fontSize: '22px',
+      color: '#00f0ff',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(31).setVisible(false);
   }
 
 

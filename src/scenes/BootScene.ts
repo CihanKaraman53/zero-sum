@@ -46,7 +46,7 @@ export class BootScene extends Phaser.Scene {
   create() {
     // Add a small delay to ensure fonts render correctly
     this.time.delayedCall(500, () => {
-      this.scene.start('GameScene');
+      this.scene.start('MenuScene');
     });
   }
 }

@@ -40,6 +40,14 @@ export class BlackHoleSystem {
     this.vortexGfx.setVisible(false);
   }
 
+  forceHide(): void {
+    this.isActive = false;
+    this.timer = 0;
+    this.vortexGfx.setVisible(false);
+    this.vortexGfx.clear();
+    this.scene.tweens.killTweensOf(this.vortexGfx);
+  }
+
   /**
    * Trigger the black hole event.
    */

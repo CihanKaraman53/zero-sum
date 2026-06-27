@@ -1,28 +1,36 @@
 import Phaser from 'phaser';
 import { ObjectPool } from '../core/ObjectPool';
-import { PARTICLE_POOL_SIZE } from '../core/Constants';
+import { PARTICLE_POOL_SIZE, MAX_LIVE_PARTICLES } from '../core/Constants';
+
+/** Base geometry radius — never changed after pool create (avoids setRadius GPU rebuild). */
+const BASE_RADIUS = 5;
 
 interface Particle {
-  gfx: Phaser.GameObjects.Graphics;
+  /** Visual-only circle — no Matter.js body. */
+  circle: Phaser.GameObjects.Arc;
   x: number;
   y: number;
   vx: number;
   vy: number;
   life: number;
   maxLife: number;
-  radius: number;
+  /** Target visual radius at spawn (scale = visualRadius / BASE_RADIUS). */
+  visualRadius: number;
   color: number;
-  active: boolean;
+  renderAlpha: number;
+  renderScale: number;
+  renderX: number;
+  renderY: number;
 }
 
 /**
- * ParticleManager — object-pooled particle system.
- * Max 15-20 particles per burst, short lifespan, instant recycle.
- * Zero allocation during gameplay.
+ * ParticleManager — pooled visual-only particles.
+ * Fixed geometry radius; size changes via setScale (not setRadius).
  */
 export class ParticleManager {
   scene: Phaser.Scene;
-  pool: ObjectPool<Particle>;
+  private pool: ObjectPool<Particle>;
+  private live: Particle[] = [];
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -35,30 +43,67 @@ export class ParticleManager {
   }
 
   private createParticle(): Particle {
-    const gfx = this.scene.add.graphics();
-    gfx.setDepth(25);
-    gfx.setVisible(false);
+    const circle = this.scene.add.circle(0, 0, BASE_RADIUS, 0xffffff);
+    circle.setDepth(25);
+    circle.setVisible(false);
+    circle.setActive(false);
     return {
-      gfx,
+      circle,
       x: 0, y: 0, vx: 0, vy: 0,
-      life: 0, maxLife: 300, radius: 3,
-      color: 0xffffff, active: false
+      life: 0, maxLife: 300, visualRadius: BASE_RADIUS,
+      color: 0xffffff,
+      renderAlpha: -1,
+      renderScale: -1,
+      renderX: Number.NaN,
+      renderY: Number.NaN,
     };
   }
 
   private resetParticle(p: Particle): void {
-    p.active = false;
-    p.gfx.setVisible(false);
-    p.gfx.clear();
+    p.life = 0;
+    p.vx = 0;
+    p.vy = 0;
+    p.renderAlpha = -1;
+    p.renderScale = -1;
+    p.renderX = Number.NaN;
+    p.renderY = Number.NaN;
+    p.circle.setScale(1);
+    p.circle.setAlpha(1);
+    p.circle.setVisible(false);
+    p.circle.setActive(false);
   }
 
-  /**
-   * Emit a burst of particles at position.
-   */
+  private acquireLive(): Particle | null {
+    if (this.live.length >= MAX_LIVE_PARTICLES) {
+      this.retire(this.live[0], 0);
+    }
+
+    const p = this.pool.acquire();
+    if (!p) return null;
+
+    this.live.push(p);
+    return p;
+  }
+
+  private retire(p: Particle, index: number): void {
+    const last = this.live.length - 1;
+    if (index >= 0 && index <= last) {
+      this.live[index] = this.live[last];
+      this.live.pop();
+    } else {
+      const idx = this.live.indexOf(p);
+      if (idx >= 0) {
+        this.live[idx] = this.live[last];
+        this.live.pop();
+      }
+    }
+    this.pool.release(p);
+  }
+
   burst(x: number, y: number, color: number, count: number = 15, speed: number = 3, lifespan: number = 400): void {
-    const clampedCount = Math.min(count, 20); // performance cap
+    const clampedCount = Math.min(count, 16);
     for (let i = 0; i < clampedCount; i++) {
-      const p = this.pool.acquire();
+      const p = this.acquireLive();
       if (!p) break;
 
       const angle = (Math.PI * 2 * i) / clampedCount + (Math.random() - 0.5) * 0.5;
@@ -70,82 +115,96 @@ export class ParticleManager {
       p.vy = Math.sin(angle) * spd;
       p.life = lifespan;
       p.maxLife = lifespan;
-      p.radius = 2 + Math.random() * 3;
+      p.visualRadius = 2 + Math.random() * 3;
       p.color = color;
-      p.active = true;
-      p.gfx.setVisible(true);
+      p.renderAlpha = -1;
+      p.renderScale = -1;
+      p.renderX = Number.NaN;
+      p.renderY = Number.NaN;
+
+      const scale = p.visualRadius / BASE_RADIUS;
+      p.circle.setFillStyle(color, 1);
+      p.circle.setScale(scale);
+      p.circle.setAlpha(1);
+      p.circle.setPosition(x, y);
+      p.circle.setActive(true);
+      p.circle.setVisible(true);
     }
   }
 
-  /**
-   * Emit merge particles (smaller, topcolor).
-   */
   mergeBurst(x: number, y: number, color: number): void {
-    this.burst(x, y, color, 10, 2, 300);
+    this.burst(x, y, color, 8, 2, 280);
   }
 
-  /**
-   * Emit Zero Sum explosion (bigger, white + color).
-   */
   zeroSumExplosion(x: number, y: number, color1: number, color2: number): void {
-    this.burst(x, y, color1, 10, 4, 500);
-    this.burst(x, y, color2, 8, 3.5, 450);
-    this.burst(x, y, 0xffffff, 5, 5, 350);
+    this.burst(x, y, color1, 8, 4, 450);
+    this.burst(x, y, color2, 6, 3.5, 400);
+    this.burst(x, y, 0xffffff, 4, 5, 320);
   }
 
-  /**
-   * Emit shrink poof.
-   */
   shrinkPoof(x: number, y: number, color: number): void {
-    this.burst(x, y, color, 5, 1.5, 250);
+    this.burst(x, y, color, 4, 1.5, 220);
   }
 
-  /**
-   * Black hole explosion.
-   */
   blackHoleExplosion(x: number, y: number): void {
-    this.burst(x, y, 0x8800ff, 20, 6, 600);
-    this.burst(x, y, 0x00ccff, 15, 5, 500);
-    this.burst(x, y, 0xffffff, 10, 7, 400);
+    this.burst(x, y, 0x8800ff, 12, 6, 550);
+    this.burst(x, y, 0x00ccff, 10, 5, 450);
+    this.burst(x, y, 0xffffff, 6, 7, 350);
   }
 
-  /**
-   * Update all active particles. Called each frame.
-   */
   update(delta: number): void {
-    const dt = delta / 16.666; // normalize to 60fps
-    const activeItems = this.pool.getActiveItems();
+    if (this.live.length === 0) return;
 
-    activeItems.forEach(p => {
-      if (!p.active) return;
+    const dt = delta / 16.666;
+
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const p = this.live[i];
 
       p.life -= delta;
       if (p.life <= 0) {
-        this.pool.release(p);
-        return;
+        this.retire(p, i);
+        continue;
       }
 
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vy += 0.05 * dt; // tiny gravity
+      p.vy += 0.05 * dt;
 
       const progress = 1 - (p.life / p.maxLife);
       const alpha = 1 - progress;
-      const scale = 1 - progress * 0.5;
 
-      p.gfx.clear();
-      p.gfx.fillStyle(p.color, alpha);
-      p.gfx.fillCircle(0, 0, p.radius * scale);
+      if (alpha <= 0.03) {
+        this.retire(p, i);
+        continue;
+      }
 
-      // Outer glow
-      p.gfx.fillStyle(p.color, alpha * 0.3);
-      p.gfx.fillCircle(0, 0, p.radius * scale * 1.8);
+      const scale = (p.visualRadius / BASE_RADIUS) * (1 - progress * 0.5);
 
-      p.gfx.setPosition(p.x, p.y);
-    });
+      if (
+        alpha !== p.renderAlpha ||
+        Math.abs(scale - p.renderScale) > 0.02 ||
+        Math.abs(p.x - p.renderX) > 0.5 ||
+        Math.abs(p.y - p.renderY) > 0.5
+      ) {
+        p.circle.setPosition(p.x, p.y);
+        p.circle.setScale(scale);
+        p.circle.setAlpha(alpha);
+        p.renderAlpha = alpha;
+        p.renderScale = scale;
+        p.renderX = p.x;
+        p.renderY = p.y;
+      }
+    }
+  }
+
+  getLiveCount(): number {
+    return this.live.length;
   }
 
   destroy(): void {
+    while (this.live.length > 0) {
+      this.retire(this.live[0], 0);
+    }
     this.pool.releaseAll();
   }
 }

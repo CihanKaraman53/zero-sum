@@ -61,7 +61,9 @@ export const CAT_SENSOR = 0x0004;
 
 // ── Pool sizes ──
 export const BALL_POOL_SIZE = 50;
+export const ANCHOR_POOL_SIZE = 16;
 export const PARTICLE_POOL_SIZE = 200;
+export const MAX_LIVE_PARTICLES = 96;
 export const TEXT_POOL_SIZE = 20;
 
 // ── Combo ──

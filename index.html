@@ -6,15 +6,20 @@
   <title>Zero Sum Drop</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #050510; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #060515; }
     #game-container {
-      width: 100%;
-      height: 100%;
+      position: fixed;
+      inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
+      background: #060515;
+      overflow: hidden;
     }
-    canvas { display: block; }
+    #game-container canvas {
+      display: block;
+      margin: 0 !important;
+    }
   </style>
 </head>
 <body>

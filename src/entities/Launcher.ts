@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   LAUNCHER_Y, LAUNCHER_MIN_X, LAUNCHER_MAX_X, CONTAINER_CENTER_X,
-  DROP_COOLDOWN, CONTAINER_BORDER_COLOR, getBallRadius
+  DROP_COOLDOWN, CONTAINER_BORDER_COLOR, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP
 } from '../core/Constants';
 
 /**
@@ -28,6 +28,8 @@ export class Launcher {
   maxX: number = LAUNCHER_MAX_X;
   private previewValue: number = 2;
   private previewSpecial: string | null = null;
+  private invertedMode = false;
+  private invertedContainerBottom = CONTAINER_BOTTOM;
 
   updateBounds(minX: number, maxX: number): void {
     this.minX = minX;
@@ -178,10 +180,10 @@ export class Launcher {
     this.canDrop = false;
     this.lastDropTime = time;
 
-    // Drop animation
+    const baseY = this.container.y;
     this.scene.tweens.add({
       targets: this.container,
-      y: LAUNCHER_Y + 8,
+      y: this.invertedMode ? baseY - 8 : baseY + 8,
       duration: 60,
       yoyo: true,
       ease: 'Sine.easeOut',
@@ -194,11 +196,27 @@ export class Launcher {
     this.speed = speed;
   }
 
+  setInvertedMode(on: boolean, containerBottom?: number): void {
+    this.invertedMode = on;
+    if (on) {
+      this.invertedContainerBottom = containerBottom ?? CONTAINER_BOTTOM;
+      this.container.setY(this.invertedContainerBottom + 52);
+      this.container.setAngle(180);
+    } else {
+      this.container.setY(LAUNCHER_Y);
+      this.container.setAngle(0);
+    }
+    this.drawBody();
+  }
+
   getX(): number {
     return this.x;
   }
 
   getDropY(): number {
+    if (this.invertedMode) {
+      return this.invertedContainerBottom - 28;
+    }
     return LAUNCHER_Y + 20;
   }
 
@@ -246,19 +264,23 @@ export class Launcher {
 
   private drawAimLine(time: number): void {
     this.aimLine.clear();
-    // Pulsing opacity effect (alpha tween)
     const alpha = 0.2 + 0.15 * Math.sin(time * 0.005);
-    
-    // Glowing thin cyan/blue line
     this.aimLine.lineStyle(2, 0x00ccff, alpha);
 
-    // Draw straight line from bottom-center of launcher to bottom of the grid
-    const startY = 32; // Half of launcher height (65 / 2)
-    const endY = 800; // Far enough to reach bottom of the grid
-    
-    this.aimLine.beginPath();
-    this.aimLine.moveTo(0, startY);
-    this.aimLine.lineTo(0, endY);
-    this.aimLine.strokePath();
+    if (this.invertedMode) {
+      const startY = -32;
+      const endY = -(this.invertedContainerBottom - CONTAINER_TOP - 40);
+      this.aimLine.beginPath();
+      this.aimLine.moveTo(0, startY);
+      this.aimLine.lineTo(0, endY);
+      this.aimLine.strokePath();
+    } else {
+      const startY = 32;
+      const endY = 800;
+      this.aimLine.beginPath();
+      this.aimLine.moveTo(0, startY);
+      this.aimLine.lineTo(0, endY);
+      this.aimLine.strokePath();
+    }
   }
 }
