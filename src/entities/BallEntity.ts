@@ -2,9 +2,9 @@ import Phaser from 'phaser';
 
 export type BallSpecial = 'multiply' | 'divide' | 'blast' | 'slice' | 'chance' | null;
 
-/** Shared contract for dynamic JellyBall and static AnchorBall. */
+/** Shared contract for JellyBall entities. */
 export interface BallEntity {
-  poolKind: 'jelly' | 'anchor';
+  poolKind: 'jelly';
   active: boolean;
   frozen: boolean;
   value: number;

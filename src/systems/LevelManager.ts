@@ -31,7 +31,6 @@ export class LevelManager {
   // Helper to fetch active ball values from the scene
   public getActiveBallValues?: () => number[];
   public getActiveBallCount?: () => number;
-  public getActiveFrozenCount?: () => number;
 
   constructor(scoring: ScoringSystem) {
     this.scoring = scoring;
@@ -55,8 +54,6 @@ export class LevelManager {
   private level9DropIndex: number = 0;
   private level9Plus16Sent: boolean = false;
   private level9Minus16Sent: boolean = false;
-  private level10DropIndex: number = 0;
-  private level10Bag: number[] = [];
   private readonly level6FixedSpecials: BallSpecial[] = ['blast', 'slice', 'chance'];
   private readonly level6SpecialAt = [8, 16, 24];
 
@@ -97,13 +94,10 @@ export class LevelManager {
     } else if (index === 7) {
       this.level8DropIndex = 0;
       this.level8FlipComplete = false;
-    } else if (index === 8) {
+    } else if (index === 8 || index === 9) {
       this.level9DropIndex = 0;
       this.level9Plus16Sent = false;
       this.level9Minus16Sent = false;
-    } else if (index === 9) {
-      this.level10DropIndex = 0;
-      this.refillLevel10Bag();
     }
 
     // Init queue
@@ -276,7 +270,7 @@ export class LevelManager {
           this.dropQueue.push({ value: val, special: null });
         }
         continue;
-      } else if (this.currentLevelIndex === 8) {
+      } else if (this.isSpectralMazeLevel()) {
         this.level9DropIndex++;
         const idx = this.level9DropIndex;
         const pool = [2, -2, 4, -4, 8, -8];
@@ -291,12 +285,6 @@ export class LevelManager {
           const val = pool[Math.floor(Math.random() * pool.length)];
           this.dropQueue.push({ value: val, special: null });
         }
-        continue;
-      } else if (this.currentLevelIndex === 9) {
-        this.level10DropIndex++;
-        if (this.level10Bag.length === 0) this.refillLevel10Bag();
-        const val = this.level10Bag.pop()!;
-        this.dropQueue.push({ value: val, special: null });
         continue;
       }
 
@@ -380,10 +368,6 @@ export class LevelManager {
     return this.hasTimeSurvival() && this.surviveTimeRemaining <= 0 && !this.hasWon;
   }
 
-  hasAnchorClearGoal(): boolean {
-    return this.currentLevelIndex === 9;
-  }
-
   registerZeroSum(): void {
     if (!this.hasZeroSumGoal()) return;
     this.zeroSumCount++;
@@ -403,12 +387,6 @@ export class LevelManager {
         this.hasWon = true;
         return true;
       }
-    } else if (this.hasAnchorClearGoal()) {
-      if (this.getActiveFrozenCount && this.getActiveFrozenCount() === 0) {
-        this.hasWon = true;
-        return true;
-      }
-      return false;
     } else if (this.currentLevel.type === 'board_clear') {
       if (this.currentLevel.clearCount && this.clearedFrozenBalls >= this.currentLevel.clearCount) {
         this.hasWon = true;
@@ -448,6 +426,11 @@ export class LevelManager {
     return this.currentLevel.type === 'fusion_goal' && !!this.currentLevel.dualFusion;
   }
 
+  /** Levels 9 & 10 — geyser winds, dual +128/-128 fusion goal. */
+  isSpectralMazeLevel(): boolean {
+    return this.currentLevelIndex === 8 || this.currentLevelIndex === 9;
+  }
+
   registerDestroyedBall(wasFrozen: boolean): void {
     if (this.currentLevel.type === 'board_clear' && wasFrozen) {
       this.clearedFrozenBalls++;
@@ -460,10 +443,6 @@ export class LevelManager {
   getProgress(): number {
     if (this.hasDropLimit()) {
       return this.dropsTotal > 0 ? 1 - this.dropsRemaining / this.dropsTotal : 0;
-    } else if (this.hasAnchorClearGoal()) {
-      const start = this.currentLevel.clearCount ?? 10;
-      const left = this.getActiveFrozenCount?.() ?? start;
-      return Math.min(1, Math.max(0, (start - left) / start));
     } else if (this.currentLevel.type === 'score_attack') {
       return Math.min(1, this.scoring.score / (this.currentLevel.targetScore || 1));
     } else if (this.currentLevel.type === 'board_clear') {
@@ -489,16 +468,6 @@ export class LevelManager {
 
   getLauncherSpeed(): number {
     return this.currentLevel.dropSpeed;
-  }
-
-  private refillLevel10Bag(): void {
-    this.level10Bag = [2, -2, 4, -4, 8, -8, 2, -2, 4, -4, 8, -8];
-    for (let i = this.level10Bag.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = this.level10Bag[i];
-      this.level10Bag[i] = this.level10Bag[j];
-      this.level10Bag[j] = tmp;
-    }
   }
 
   private pickRandomSpecial(): BallSpecial {

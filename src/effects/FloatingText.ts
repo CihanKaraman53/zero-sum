@@ -15,6 +15,12 @@ interface FloatingTextItem {
 export class FloatingText {
   scene: Phaser.Scene;
   pool: ObjectPool<FloatingTextItem>;
+  /** Ultra perf tier suspends text spawns — chain reactions stop creating tweens. */
+  suspended = false;
+
+  setSuspended(on: boolean): void {
+    this.suspended = on;
+  }
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -46,6 +52,7 @@ export class FloatingText {
   }
 
   show(x: number, y: number, message: string, color: string = '#ffffff', size: number = 22, duration: number = 800): void {
+    if (this.suspended) return;
     const item = this.pool.acquire();
     if (!item) return;
 

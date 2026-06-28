@@ -12,6 +12,7 @@ export class NextQueue {
 
   private previewSprites: Phaser.GameObjects.Sprite[] = [];
   private previewLabels: Phaser.GameObjects.Text[] = [];
+  private cachedLabelText: string[] = ['', ''];
 
   constructor(scene: Phaser.Scene, levelManager: LevelManager) {
     this.scene = scene;
@@ -63,7 +64,10 @@ export class NextQueue {
 
       if (!item) {
         sprite.setVisible(false);
-        label.setText('');
+        if (this.cachedLabelText[i] !== '') {
+          this.cachedLabelText[i] = '';
+          label.setText('');
+        }
         continue;
       }
 
@@ -95,15 +99,20 @@ export class NextQueue {
       // Display size (diameter 38px)
       sprite.setDisplaySize(38, 38);
 
+      let labelText = '';
       if (item.special === 'multiply') {
-        label.setText('×2');
+        labelText = '×2';
       } else if (item.special === 'divide') {
-        label.setText('÷2');
+        labelText = '÷2';
       } else if (item.special === 'blast' || item.special === 'slice' || item.special === 'chance') {
-        label.setText('');
+        labelText = '';
       } else {
         const prefix = item.value > 0 ? '+' : '';
-        label.setText(`${prefix}${item.value}`);
+        labelText = `${prefix}${item.value}`;
+      }
+      if (labelText !== this.cachedLabelText[i]) {
+        this.cachedLabelText[i] = labelText;
+        label.setText(labelText);
       }
     }
   }

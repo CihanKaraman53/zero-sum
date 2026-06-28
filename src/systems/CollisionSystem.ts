@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { JellyBall } from '../entities/JellyBall';
-import { AnchorBall } from '../entities/AnchorBall';
 import { BallEntity } from '../entities/BallEntity';
 import { ObjectPool } from '../core/ObjectPool';
 import { ParticleManager } from '../effects/ParticleManager';
@@ -29,7 +28,6 @@ type CollisionPair = { bodyA: MatterJS.BodyType; bodyB: MatterJS.BodyType };
 export class CollisionSystem {
   scene: Phaser.Scene;
   ballPool: ObjectPool<JellyBall>;
-  anchorPool: ObjectPool<AnchorBall>;
   particles: ParticleManager;
   floatingText: FloatingText;
   scoring: ScoringSystem;
@@ -50,7 +48,6 @@ export class CollisionSystem {
   constructor(
     scene: Phaser.Scene,
     ballPool: ObjectPool<JellyBall>,
-    anchorPool: ObjectPool<AnchorBall>,
     particles: ParticleManager,
     floatingText: FloatingText,
     scoring: ScoringSystem,
@@ -58,13 +55,12 @@ export class CollisionSystem {
   ) {
     this.scene = scene;
     this.ballPool = ballPool;
-    this.anchorPool = anchorPool;
     this.particles = particles;
     this.floatingText = floatingText;
     this.scoring = scoring;
     this.combo = combo;
 
-    // collisionstart only — collisionactive re-scans every resting pair each step (heavy on L10 piles)
+    // collisionstart only — defer pair resolution to afterUpdate
     this.scene.matter.world.on('collisionstart', this.onCollisionStart);
     // Defer merge/shrink/spawn to afterUpdate so bodies are not mutated mid-Engine.update
     this.scene.matter.world.on('afterupdate', this.onAfterUpdate);
@@ -88,18 +84,21 @@ export class CollisionSystem {
     return idA < idB ? idA * 65536 + idB : idB * 65536 + idA;
   }
 
+  private getEntityX(ball: BallEntity): number {
+    return ball.body ? ball.body.position.x : ball.anchorX;
+  }
+
+  private getEntityY(ball: BallEntity): number {
+    return ball.body ? ball.body.position.y : ball.anchorY;
+  }
+
   private releaseBall(ball: BallEntity): void {
     ball.deactivate();
-    if (ball.poolKind === 'anchor') {
-      this.anchorPool.release(ball as AnchorBall);
-    } else {
-      this.ballPool.release(ball as JellyBall);
-    }
+    this.ballPool.release(ball as JellyBall);
   }
 
   private forEachActiveBall(fn: (ball: BallEntity) => void): void {
     this.ballPool.forEachActive(fn);
-    this.anchorPool.forEachActive(fn);
   }
 
   private queueCollisions(event: { pairs: CollisionPair[] }): void {
@@ -128,58 +127,50 @@ export class CollisionSystem {
   private flushPendingCollisions(): void {
     const pending = this.pendingPairs;
     const len = pending.length;
-    if (len === 0) return;
-
     for (let i = 0; i < len; i++) {
-      this.processBallBallCollision(pending[i]);
+      const pair = pending[i];
+      const ballA = this.getBall(pair.bodyA);
+      const ballB = this.getBall(pair.bodyB);
+      if (!ballA || !ballB || !ballA.active || !ballB.active) continue;
+
+      const pairId = this.pairKey(pair.bodyA.id, pair.bodyB.id);
+      if (this.processedPairs.has(pairId)) continue;
+      this.processedPairs.add(pairId);
+
+      if (ballA.frozen || ballB.frozen) {
+        if (ballA.frozen && ballB.frozen) {
+          ballA.playSquash();
+          ballB.playSquash();
+          continue;
+        }
+        const anchor = ballA.frozen ? ballA : ballB;
+        const dynamic = ballA.frozen ? ballB : ballA;
+        if ((dynamic as JellyBall).special) {
+          this.handleSpecialCollision(dynamic as JellyBall, anchor);
+        } else {
+          this.processAnchorCollision(anchor, dynamic);
+        }
+        continue;
+      }
+
+      if (ballA.special || ballB.special) {
+        this.handleSpecialCollision(ballA as JellyBall, ballB);
+        continue;
+      }
+
+      const sameSign = ballA.sign === ballB.sign;
+      const sameValue = ballA.absValue === ballB.absValue;
+
+      if (sameSign && !sameValue) {
+        ballA.playSquash();
+        ballB.playSquash();
+        continue;
+      }
+
+      this.processCollision(ballA, ballB);
     }
     pending.length = 0;
     this.processedPairs.clear();
-  }
-
-  private processBallBallCollision(pair: CollisionPair): void {
-    const bodyA = pair.bodyA;
-    const bodyB = pair.bodyB;
-
-    const ballA = this.getBall(bodyA);
-    const ballB = this.getBall(bodyB);
-    if (!ballA || !ballB || !ballA.active || !ballB.active) return;
-
-    const pairId = this.pairKey(bodyA.id, bodyB.id);
-    if (this.processedPairs.has(pairId)) return;
-    this.processedPairs.add(pairId);
-
-    if (ballA.frozen || ballB.frozen) {
-      if (ballA.frozen && ballB.frozen) {
-        ballA.playSquash();
-        ballB.playSquash();
-        return;
-      }
-      const anchor = ballA.frozen ? ballA : ballB;
-      const dynamic = ballA.frozen ? ballB : ballA;
-      if ((dynamic as JellyBall).special) {
-        this.handleSpecialCollision(dynamic as JellyBall, anchor);
-      } else {
-        this.processAnchorCollision(anchor, dynamic);
-      }
-      return;
-    }
-
-    if (ballA.special || ballB.special) {
-      this.handleSpecialCollision(ballA, ballB);
-      return;
-    }
-
-    const sameSign = ballA.sign === ballB.sign;
-    const sameValue = ballA.absValue === ballB.absValue;
-
-    if (sameSign && !sameValue) {
-      ballA.playSquash();
-      ballB.playSquash();
-      return;
-    }
-
-    this.processCollision(ballA, ballB);
   }
 
   private processAnchorCollision(anchor: BallEntity, dynamic: BallEntity): void {
@@ -259,8 +250,8 @@ export class CollisionSystem {
 
     const newAbsVal = absVal * 2;
     const newValue = newAbsVal * sign;
-    const midX = (ballA.body!.position.x + ballB.body!.position.x) / 2;
-    const midY = (ballA.body!.position.y + ballB.body!.position.y) / 2;
+    const midX = (this.getEntityX(ballA) + this.getEntityX(ballB)) / 2;
+    const midY = (this.getEntityY(ballA) + this.getEntityY(ballB)) / 2;
 
     // Remove B, evolve A
     ballB.deactivate();
@@ -303,8 +294,8 @@ export class CollisionSystem {
 
   private handleZeroSum(ballA: BallEntity, ballB: BallEntity): void {
     const absVal = ballA.absValue;
-    const midX = (ballA.body!.position.x + ballB.body!.position.x) / 2;
-    const midY = (ballA.body!.position.y + ballB.body!.position.y) / 2;
+    const midX = (this.getEntityX(ballA) + this.getEntityX(ballB)) / 2;
+    const midY = (this.getEntityY(ballA) + this.getEntityY(ballB)) / 2;
 
     const aFrozen = ballA.frozen;
     const bFrozen = ballB.frozen;
@@ -317,15 +308,8 @@ export class CollisionSystem {
 
     const levelIndex = (this.scene as any).levelManager?.currentLevelIndex;
     const isLevel3 = levelIndex === 2;
-    const isLevel10 = levelIndex === 9;
 
-    // Epic explosion — lighter on L10 (many anchor hits in a row)
-    if (isLevel10) {
-      this.particles.burst(midX, midY, POSITIVE_COLOR, 6, 3, 350);
-      this.particles.burst(midX, midY, NEGATIVE_COLOR, 4, 2.5, 300);
-    } else {
-      this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
-    }
+    this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
 
     if (isLevel3) {
       this.floatingText.show(midX, midY - 20, '+500 ZERO SUM!', '#ffffff', 26, 1000);
@@ -333,10 +317,7 @@ export class CollisionSystem {
       this.floatingText.showZeroSum(midX, midY - 20);
     }
 
-    // Screen shake — skip on L10 (anchor clears chain = constant shake stutter)
-    if (!isLevel10) {
-      this.scene.cameras.main.shake(200, 0.008 + absVal * 0.001);
-    }
+    this.scene.cameras.main.shake(200, 0.008 + absVal * 0.001);
 
     // Score
     const time = this.scene.time.now;
@@ -419,11 +400,11 @@ export class CollisionSystem {
           };
 
       if (pinSpawns) {
-        const anchor = this.anchorPool.acquire();
-        if (!anchor) continue;
-        anchor.activate(pos.x, pos.y, absVal * bigSign, true);
-        if (absVal >= 2048) anchor.makeKing();
-        placedSpawns.push({ x: pos.x, y: pos.y, radius: anchor.radius });
+        const pinned = this.ballPool.acquire();
+        if (!pinned) continue;
+        pinned.activate(pos.x, pos.y, absVal * bigSign, null, true, true);
+        if (absVal >= 2048) pinned.makeKing();
+        placedSpawns.push({ x: pos.x, y: pos.y, radius: pinned.radius });
       } else {
         const newBall = this.ballPool.acquire();
         if (!newBall) continue;
@@ -473,8 +454,8 @@ export class CollisionSystem {
     const obstacles = [...alreadyPlaced];
     this.forEachActiveBall((ball) => {
       obstacles.push({
-        x: ball.poolKind === 'anchor' ? ball.anchorX : ball.body!.position.x,
-        y: ball.poolKind === 'anchor' ? ball.anchorY : ball.body!.position.y,
+        x: ball.frozen ? ball.anchorX : ball.body!.position.x,
+        y: ball.frozen ? ball.anchorY : ball.body!.position.y,
         radius: ball.radius,
       });
     });

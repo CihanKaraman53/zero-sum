@@ -69,7 +69,8 @@ export class GeyserSystem {
     this.particles.forEach(p => { p.alpha = 0; });
   }
 
-  update(time: number, delta: number): void {
+  /** Advance wind cycle — call once per physics step. */
+  tick(delta: number): void {
     this.timer += delta;
     this.windPhase += delta * 0.004;
 
@@ -93,10 +94,23 @@ export class GeyserSystem {
         }
         break;
     }
+  }
 
+  /** Apply launch forces — call once per physics step, before Matter integrates. */
+  applyForces(): void {
     this.applyAirForces();
+  }
+
+  update(time: number, delta: number): void {
     this.updateParticles(delta);
     this.draw(time);
+  }
+
+  private wakeAndSetVelocity(body: MatterJS.BodyType, vx: number, vy: number): void {
+    if (body.isSleeping) {
+      this.scene.matter.body.set(body, { isSleeping: false });
+    }
+    this.scene.matter.body.setVelocity(body, { x: vx, y: vy });
   }
 
   private applyAirForces(): void {
@@ -109,32 +123,36 @@ export class GeyserSystem {
 
     const leftBandRight = containerLeft + this.columnWidth;
     const rightBandLeft = containerRight - this.columnWidth;
+    const midX = (containerLeft + containerRight) / 2;
 
     this.ballPool.forEachActive((ball) => {
       if (!ball.active || !ball.body || ball.frozen) return;
 
-      const bx = ball.body.position.x;
-      const by = ball.body.position.y;
+      const body = ball.body;
+      const bx = body.position.x;
+      const by = body.position.y;
       const r = ball.radius;
 
       const inHeight = by + r > containerTop && by - r < containerBottom;
-      if (!inHeight) return;
+      const inPlayArea = bx + r > containerLeft && bx - r < containerRight;
+      if (!inHeight || !inPlayArea) return;
 
       const inLeftCol = bx + r > containerLeft && bx - r < leftBandRight;
       const inRightCol = bx - r < containerRight && bx + r > rightBandLeft;
-
-      if (!inLeftCol && !inRightCol) return;
+      const inSideVent = inLeftCol || inRightCol;
 
       if (this.state === 'WARNING') {
-        const vx = (Math.random() - 0.5) * 0.8;
-        const vy = (Math.random() - 0.5) * 0.8;
-        this.scene.matter.body.setVelocity(ball.body, { x: vx, y: vy });
+        const vx = (Math.random() - 0.5) * 1.2;
+        const vy = -5 - Math.random() * 4;
+        this.wakeAndSetVelocity(body, vx, vy);
         ball.playSquash();
       } else if (this.state === 'STORM') {
-        const pushDir = inLeftCol && !inRightCol ? 1 : inRightCol && !inLeftCol ? -1 : bx < (containerLeft + containerRight) / 2 ? 1 : -1;
-        const targetVy = -25.0;
-        const targetVx = pushDir * 0.8 + (Math.random() - 0.5) * 1.0;
-        this.scene.matter.body.setVelocity(ball.body, { x: targetVx, y: targetVy });
+        const pushDir = inLeftCol && !inRightCol ? 1 : inRightCol && !inLeftCol ? -1 : bx < midX ? 1 : -1;
+        const targetVy = -24 - Math.random() * 4;
+        const targetVx = inSideVent
+          ? pushDir * (2.5 + Math.random() * 1.5)
+          : (Math.random() - 0.5) * 1.5;
+        this.wakeAndSetVelocity(body, targetVx, targetVy);
       }
     });
   }

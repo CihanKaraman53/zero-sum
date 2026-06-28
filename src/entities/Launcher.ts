@@ -30,6 +30,12 @@ export class Launcher {
   private previewSpecial: string | null = null;
   private invertedMode = false;
   private invertedContainerBottom = CONTAINER_BOTTOM;
+  private aimThrottle = false;
+  private aimFrame = 0;
+
+  setAimThrottle(on: boolean): void {
+    this.aimThrottle = on;
+  }
 
   updateBounds(minX: number, maxX: number): void {
     this.minX = minX;
@@ -168,8 +174,10 @@ export class Launcher {
 
     this.container.setX(this.x);
 
-    // Aim line pulse
-    this.drawAimLine(time);
+    this.aimFrame++;
+    if (!this.aimThrottle || this.aimFrame % 3 === 0) {
+      this.drawAimLine(time);
+    }
   }
 
   /**

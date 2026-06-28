@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import {
   getBallRadius, SPECIAL_COLOR, KING_COLOR,
-  CAT_BALL, CAT_WALL, CAT_ANCHOR, CONTAINER_BOTTOM
+  CAT_BALL, CAT_WALL, CONTAINER_BOTTOM,
+  BALL_RESTITUTION, BALL_FRICTION, BALL_FRICTION_AIR, BALL_DENSITY,
 } from '../core/Constants';
 import { attachBallBody, BallEntity, BallSpecial } from './BallEntity';
 
@@ -53,9 +54,6 @@ export class JellyBall implements BallEntity {
   private frozenRingDrawn = false;
   private kingDrawn = false;
   private cachedBaseScale = 0;
-  private lastSyncX = 0;
-  private lastSyncY = 0;
-  private visualsIdle = false;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -130,20 +128,17 @@ export class JellyBall implements BallEntity {
     this.lastLabelText = '';
     this.lastFontSize = '';
     this.wobbleScale = 0;
-    this.lastSyncX = x;
-    this.lastSyncY = y;
-    this.visualsIdle = false;
 
     this.body = this.scene.matter.add.circle(x, y, this.radius, {
-      restitution: 0.1,
-      friction: 0.1,
-      frictionAir: 0.015,
-      density: 0.001,
+      restitution: BALL_RESTITUTION,
+      friction: BALL_FRICTION,
+      frictionAir: BALL_FRICTION_AIR,
+      density: BALL_DENSITY,
       isStatic: frozen,
       ignoreGravity: frozen,
       collisionFilter: {
         category: CAT_BALL,
-        mask: CAT_BALL | CAT_WALL | CAT_ANCHOR,
+        mask: CAT_BALL | CAT_WALL,
       },
       label: 'jellyball',
     });
@@ -189,47 +184,38 @@ export class JellyBall implements BallEntity {
   syncPosition(): void {
     if (!this.active || !this.body || this.frozen) return;
 
-    const px = this.body.position.x;
-    const py = this.body.position.y;
-    const vx = this.body.velocity.x;
-    const vy = this.body.velocity.y;
+    const body = this.body;
+
+    // Fully asleep pile — zero work until a collision wakes the body
+    if (body.isSleeping && this.wobbleScale === 0) return;
+
+    const px = body.position.x;
+    const py = body.position.y;
+    const vx = body.velocity.x;
+    const vy = body.velocity.y;
     const speedSq = vx * vx + vy * vy;
 
-    const dx = px - this.lastSyncX;
-    const dy = py - this.lastSyncY;
-    if (dx * dx + dy * dy > 0.25) {
-      this.container.setPosition(px, py);
-      this.lastSyncX = px;
-      this.lastSyncY = py;
-    }
+    this.container.setPosition(px, py);
 
     const baseScale = this.cachedBaseScale;
 
-    if (this.wobbleScale !== 0 || speedSq > 2.25) {
-      this.visualsIdle = false;
-      if (speedSq > 2.25) {
-        const speed = Math.sqrt(speedSq);
-        const angle = Math.atan2(vy, vx);
-        this.sprite.setRotation(angle);
-        const stretch = Math.min(speed * 0.02, 0.4);
-        this.sprite.setScale(
-          baseScale * (1 + stretch + this.wobbleScale),
-          baseScale * (1 - stretch + this.wobbleScale)
-        );
-      } else {
-        this.sprite.setRotation(this.body.angle);
-        this.sprite.setScale(
-          baseScale * (1 + this.wobbleScale),
-          baseScale * (1 - this.wobbleScale)
-        );
-      }
-      this.label.setRotation(0);
-    } else if (!this.visualsIdle) {
-      this.sprite.setRotation(this.body.angle);
-      this.sprite.setScale(baseScale, baseScale);
-      this.label.setRotation(0);
-      this.visualsIdle = true;
+    if (speedSq > 2.25) {
+      const speed = Math.sqrt(speedSq);
+      const angle = Math.atan2(vy, vx);
+      this.sprite.setRotation(angle);
+      const stretch = Math.min(speed * 0.02, 0.4);
+      this.sprite.setScale(
+        baseScale * (1 + stretch + this.wobbleScale),
+        baseScale * (1 - stretch + this.wobbleScale)
+      );
+    } else {
+      this.sprite.setRotation(body.angle);
+      this.sprite.setScale(
+        baseScale * (1 + this.wobbleScale),
+        baseScale * (1 - this.wobbleScale)
+      );
     }
+    this.label.setRotation(0);
 
     if (py > CONTAINER_BOTTOM + 100 || px < -50 || px > 530) {
       this.deactivate();
@@ -249,7 +235,6 @@ export class JellyBall implements BallEntity {
     }
 
     this.applyVisuals(true);
-    this.visualsIdle = false;
     this.playSquash();
   }
 
@@ -263,17 +248,16 @@ export class JellyBall implements BallEntity {
     if (!this.body) return;
     if (this.squashTween) this.squashTween.stop();
     this.wobbleScale = 0;
-    this.visualsIdle = false;
 
     const speed = Math.sqrt(this.body.velocity.x ** 2 + this.body.velocity.y ** 2);
-    const intensity = Phaser.Math.Clamp(speed * 0.05, 0.1, 0.3);
+    const intensity = Phaser.Math.Clamp(speed * 0.07, 0.12, 0.42);
 
     this.squashTween = this.scene.tweens.add({
       targets: this,
-      wobbleScale: { from: intensity, to: -intensity * 0.5 },
-      duration: 60,
+      wobbleScale: { from: intensity, to: -intensity * 0.45 },
+      duration: 110,
       yoyo: true,
-      ease: 'Quad.easeOut',
+      ease: 'Sine.easeOut',
       onComplete: () => {
         this.wobbleScale = 0;
       },

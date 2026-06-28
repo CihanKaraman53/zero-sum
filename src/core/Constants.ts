@@ -64,16 +64,23 @@ export const FIXED_TIMESTEP = 16.666; // 60 FPS in ms
 /** Fixed delta passed to Matter.Engine.update — never scales with frame lag. */
 export const MATTER_DELTA = FIXED_TIMESTEP;
 
+/** Jelly ball Matter body — natural slide, soft bounce, jelly feel. */
+export const BALL_RESTITUTION = 0.14;
+export const BALL_FRICTION = 0.1;
+export const BALL_FRICTION_AIR = 0.015;
+export const BALL_DENSITY = 0.001;
+
+/** Container walls — gentle cushion on landing. */
+export const WALL_RESTITUTION = 0.14;
+export const WALL_FRICTION = 0.1;
+
 // ── Collision categories (bit flags) ──
 export const CAT_BALL = 0x0001;
 export const CAT_WALL = 0x0002;
 export const CAT_SENSOR = 0x0004;
-/** Static level anchors — skip anchor↔anchor broadphase pairs. */
-export const CAT_ANCHOR = 0x0008;
 
 // ── Pool sizes ──
 export const BALL_POOL_SIZE = 50;
-export const ANCHOR_POOL_SIZE = 16;
 export const PARTICLE_POOL_SIZE = 200;
 export const MAX_LIVE_PARTICLES = 96;
 export const TEXT_POOL_SIZE = 20;

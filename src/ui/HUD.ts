@@ -26,6 +26,9 @@ export class HUD {
   private cachedDropsText = '';
   private cachedSurvivalText = '';
   private cachedLevelNum = -1;
+  private cachedScoreText = '';
+  private cachedHighScoreText = '';
+  private cachedComboText = '';
 
   constructor(scene: Phaser.Scene, scoring: ScoringSystem, levelManager: LevelManager) {
     this.scene = scene;
@@ -89,9 +92,6 @@ export class HUD {
         ? ` | FLIP: ${this.flipCountdownHint}s`
         : '';
       this.setGoalText(`CLEAR: ${count} left${flipHint}`, true);
-    } else if (this.levelManager.hasAnchorClearGoal()) {
-      const left = this.levelManager.getActiveFrozenCount?.() ?? 0;
-      this.setGoalText(`ANCHORS: ${left} left`, true);
     } else if (lvl.type === 'fusion_goal' && lvl.fusionTarget) {
       if (this.levelManager.hasDualFusionGoal()) {
         const t = lvl.fusionTarget;
@@ -146,8 +146,16 @@ export class HUD {
   }
 
   private updateScore(score: number, highScore: number): void {
-    this.scoreText.setText(`SCORE: ${score.toLocaleString()}`);
-    this.highScoreText.setText(`High Score: ${highScore.toLocaleString()}`);
+    const scoreStr = `SCORE: ${score.toLocaleString()}`;
+    if (scoreStr !== this.cachedScoreText) {
+      this.cachedScoreText = scoreStr;
+      this.scoreText.setText(scoreStr);
+    }
+    const highStr = `High Score: ${highScore.toLocaleString()}`;
+    if (highStr !== this.cachedHighScoreText) {
+      this.cachedHighScoreText = highStr;
+      this.highScoreText.setText(highStr);
+    }
   }
 
   private updateCombo(comboCount: number): void {
@@ -162,16 +170,20 @@ export class HUD {
   setComboActive(multiplier: number): void {
     if (multiplier > 1) {
       this.comboGroup.setVisible(true);
-      this.comboMultiplierText.setText(`x${multiplier}`);
-      // Pulse tween
-      this.scene.tweens.add({
-        targets: this.comboMultiplierText,
-        scaleX: 1.2,
-        scaleY: 1.2,
-        duration: 100,
-        yoyo: true,
-      });
+      const text = `x${multiplier}`;
+      if (text !== this.cachedComboText) {
+        this.cachedComboText = text;
+        this.comboMultiplierText.setText(text);
+        this.scene.tweens.add({
+          targets: this.comboMultiplierText,
+          scaleX: 1.2,
+          scaleY: 1.2,
+          duration: 100,
+          yoyo: true,
+        });
+      }
     } else {
+      this.cachedComboText = '';
       this.comboGroup.setVisible(false);
     }
   }

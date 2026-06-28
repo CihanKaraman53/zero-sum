@@ -31,6 +31,7 @@ export class ParticleManager {
   scene: Phaser.Scene;
   private pool: ObjectPool<Particle>;
   private live: Particle[] = [];
+  private maxLive = MAX_LIVE_PARTICLES;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -73,8 +74,24 @@ export class ParticleManager {
     p.circle.setActive(false);
   }
 
+  setMaxLive(count: number): void {
+    this.maxLive = Math.max(0, count);
+    while (this.live.length > this.maxLive) {
+      this.retire(this.live[0], 0);
+    }
+  }
+
+  /** Hard suspend — used in ultra perf tier to skip all particle work. */
+  suspended = false;
+  setSuspended(on: boolean): void {
+    this.suspended = on;
+    if (on) {
+      while (this.live.length > 0) this.retire(this.live[0], 0);
+    }
+  }
+
   private acquireLive(): Particle | null {
-    if (this.live.length >= MAX_LIVE_PARTICLES) {
+    if (this.live.length >= this.maxLive) {
       this.retire(this.live[0], 0);
     }
 
@@ -101,6 +118,7 @@ export class ParticleManager {
   }
 
   burst(x: number, y: number, color: number, count: number = 15, speed: number = 3, lifespan: number = 400): void {
+    if (this.suspended || this.maxLive === 0) return;
     const clampedCount = Math.min(count, 16);
     for (let i = 0; i < clampedCount; i++) {
       const p = this.acquireLive();

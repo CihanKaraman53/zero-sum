@@ -150,28 +150,14 @@ export const LEVELS: LevelConfig[] = [
   },
   {
     id: 10,
-    name: 'The Abyss',
-    type: 'board_clear',
-    clearCount: 10,
+    name: 'Spectral Maze',
+    type: 'fusion_goal',
+    fusionTarget: 128,
+    dualFusion: true,
     spawnPool: [2, -2, 4, -4, 8, -8],
     specialChance: 0,
-    gravity: 1.3,
-    dropSpeed: 1.8,
-    description: 'Havadaki sabit blokları temizle! Normal oyun kuralları — sadece sabitler düşmez.',
-    preplacedBalls: [
-      // Upper band
-      { value: 8, x: 110, y: 340, frozen: true },
-      { value: -8, x: 370, y: 340, frozen: true },
-      { value: 16, x: 240, y: 300, frozen: true },
-      // Mid band
-      { value: -16, x: 100, y: 450, frozen: true },
-      { value: 4, x: 240, y: 470, frozen: true },
-      { value: -4, x: 380, y: 450, frozen: true },
-      // Lower-mid band
-      { value: 2, x: 120, y: 580, frozen: true },
-      { value: -2, x: 360, y: 580, frozen: true },
-      { value: -16, x: 240, y: 640, frozen: true },
-      { value: 8, x: 240, y: 720, frozen: true }
-    ]
+    gravity: 1.2,
+    dropSpeed: 1.7,
+    description: 'Yan rüzgarlar! Hem +128 hem -128 topunu oluştur.'
   }
 ];
