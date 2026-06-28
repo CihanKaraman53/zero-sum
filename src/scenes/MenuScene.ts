@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../core/Constants';
 
 /**
- * MenuScene — main menu with navigation to level select.
+ * MenuScene — main menu with direct play entry.
  */
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -23,14 +23,7 @@ export class MenuScene extends Phaser.Scene {
       grid.lineBetween(0, y, GAME_WIDTH, y);
     }
 
-    const title = this.add.text(cx, 220, 'ZERO SUM', {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '48px',
-      color: '#ff3388',
-      fontStyle: 'italic bold',
-    }).setOrigin(0.5);
-
-    const subtitle = this.add.text(cx, 280, 'DROP', {
+    const title = this.add.text(cx, 220, 'ZERO CURE', {
       fontFamily: '"Orbitron", monospace',
       fontSize: '48px',
       color: '#00ff88',
@@ -38,18 +31,18 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     this.tweens.add({
-      targets: [title, subtitle],
+      targets: title,
       alpha: 0.85,
       duration: 900,
       yoyo: true,
       repeat: -1,
     });
 
-    this.createButton(cx, 480, 220, 56, 'BÖLÜMLER', 0x00ff88, () => {
-      this.scene.start('LevelSelectScene');
+    this.createButton(cx, 480, 220, 56, 'OYNA', 0x00ff88, () => {
+      this.scene.start('GameScene');
     });
 
-    this.add.text(cx, GAME_HEIGHT - 40, 'Tap to choose a level', {
+    this.add.text(cx, GAME_HEIGHT - 40, 'Tap to start', {
       fontFamily: '"Orbitron", monospace',
       fontSize: '13px',
       color: '#666688',

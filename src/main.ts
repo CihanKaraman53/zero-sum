@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
-import { LevelSelectScene } from './scenes/LevelSelectScene';
 import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { GAME_WIDTH, GAME_HEIGHT, GRAVITY_Y, MATTER_DELTA } from './core/Constants';
@@ -51,7 +50,7 @@ const config: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [BootScene, MenuScene, LevelSelectScene, GameScene, GameOverScene]
+  scene: [BootScene, MenuScene, GameScene, GameOverScene]
 };
 
 const game = new Phaser.Game(config);

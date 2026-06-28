@@ -274,19 +274,12 @@ export class CollisionSystem {
       this.floatingText.show(midX, midY, '👑 KING!', '#ffd700', 28, 1000);
     }
 
-    const isLevel3 = (this.scene as any).levelManager?.currentLevelIndex === 2;
-    if (isLevel3) {
-      this.floatingText.show(midX, midY - 20, '+100 PTS', '#00f0ff', 22, 800);
-    } else {
-      const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-      this.particles.mergeBurst(midX, midY, color);
-      this.floatingText.showMerge(midX, midY - 20);
-    }
+    const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
+    this.particles.mergeBurst(midX, midY, color);
+    this.floatingText.showMerge(midX, midY - 20);
 
     const points = this.scoring.addMerge(newAbsVal);
-    if (!isLevel3) {
-      this.floatingText.showScore(midX, midY - 40, points);
-    }
+    this.floatingText.showScore(midX, midY - 40, points);
 
     if (this.onFusion) this.onFusion(newValue);
     if (ballB.frozen && this.onBallDestroyed) this.onBallDestroyed(true);
@@ -306,16 +299,8 @@ export class CollisionSystem {
     this.releaseBall(ballA);
     this.releaseBall(ballB);
 
-    const levelIndex = (this.scene as any).levelManager?.currentLevelIndex;
-    const isLevel3 = levelIndex === 2;
-
     this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
-
-    if (isLevel3) {
-      this.floatingText.show(midX, midY - 20, '+500 ZERO SUM!', '#ffffff', 26, 1000);
-    } else {
-      this.floatingText.showZeroSum(midX, midY - 20);
-    }
+    this.floatingText.showZeroSum(midX, midY - 20);
 
     this.scene.cameras.main.shake(200, 0.008 + absVal * 0.001);
 
@@ -324,11 +309,9 @@ export class CollisionSystem {
     const comboCount = this.combo.registerZeroSum(time);
     this.scoring.setComboMultiplier(this.combo.getMultiplier());
     const points = this.scoring.addZeroSum(absVal);
-    if (!isLevel3) {
-      this.floatingText.showScore(midX, midY - 50, points);
-      if (comboCount > 1) {
-        this.floatingText.showCombo(midX, midY - 80, comboCount);
-      }
+    this.floatingText.showScore(midX, midY - 50, points);
+    if (comboCount > 1) {
+      this.floatingText.showCombo(midX, midY - 80, comboCount);
     }
 
     if (this.onBallDestroyed) {
@@ -430,15 +413,8 @@ export class CollisionSystem {
     const color = smaller.sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
     this.particles.shrinkPoof(midX, midY, color);
 
-    const isLevel3 = (this.scene as any).levelManager?.currentLevelIndex === 2;
-    if (isLevel3) {
-      this.floatingText.show(midX, midY - 20, '+250 SPLIT COMBO!', '#ff33aa', 24, 900);
-    }
-
     const points = this.scoring.addShrink(smallAbsVal);
-    if (!isLevel3) {
-      this.floatingText.showScore(midX, midY - 20, points);
-    }
+    this.floatingText.showScore(midX, midY - 20, points);
 
     if (this.onSplit) this.onSplit();
     if (this.onBallDestroyed) {

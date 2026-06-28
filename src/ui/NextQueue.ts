@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
 import { LevelManager } from '../systems/LevelManager';
-import { GAME_WIDTH, CONTAINER_BORDER_COLOR } from '../core/Constants';
+import { CURE_L1_PLAY_WIDTH } from '../core/Constants';
 
 /**
- * NextQueue — displays the next 2 drops in the top right corner.
+ * NextQueue — displays the next 3 drops under the title (Zero Cure layout).
  */
 export class NextQueue {
   scene: Phaser.Scene;
@@ -12,35 +12,33 @@ export class NextQueue {
 
   private previewSprites: Phaser.GameObjects.Sprite[] = [];
   private previewLabels: Phaser.GameObjects.Text[] = [];
-  private cachedLabelText: string[] = ['', ''];
+  private cachedLabelText = ['', '', ''];
 
   constructor(scene: Phaser.Scene, levelManager: LevelManager) {
     this.scene = scene;
     this.levelManager = levelManager;
 
-    const startX = GAME_WIDTH - 110;
-    const startY = 30;
+    const startX = CURE_L1_PLAY_WIDTH / 2 - 80;
+    const startY = 88;
 
     this.container = scene.add.container(startX, startY).setDepth(30);
 
-    const title = scene.add.text(50, -20, 'NEXT:', {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '14px',
-      color: '#00ccff',
+    const titleText = scene.add.text(80, -28, 'NEXT', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '11px',
+      color: '#64748b',
       fontStyle: 'bold',
+      letterSpacing: 1.5,
     }).setOrigin(0.5);
-    this.container.add(title);
+    this.container.add(titleText);
 
-    // Create 2 preview slots
-    for (let i = 0; i < 2; i++) {
-      const bx = i * 50;
-
-      // Sprite preview
+    const spacing = 52;
+    for (let i = 0; i < 3; i++) {
+      const bx = i * spacing;
       const sprite = scene.add.sprite(bx + 20, 20, 'positive_ball');
       this.container.add(sprite);
       this.previewSprites.push(sprite);
 
-      // Label
       const label = scene.add.text(bx + 20, 20, '', {
         fontFamily: '"Orbitron", monospace',
         fontSize: '14px',
@@ -54,10 +52,14 @@ export class NextQueue {
     }
   }
 
+  destroy(): void {
+    this.container.destroy(true);
+  }
+
   update(): void {
     const queue = this.levelManager.getQueue();
 
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const item = queue[i];
       const sprite = this.previewSprites[i];
       const label = this.previewLabels[i];
@@ -73,22 +75,7 @@ export class NextQueue {
 
       sprite.setVisible(true);
 
-      if (item.special === 'multiply') {
-        sprite.setTexture('x2_ball');
-        sprite.clearTint();
-      } else if (item.special === 'blast') {
-        sprite.setTexture('blast_ball');
-        sprite.clearTint();
-      } else if (item.special === 'slice') {
-        sprite.setTexture('slice_ball');
-        sprite.clearTint();
-      } else if (item.special === 'chance') {
-        sprite.setTexture('dice_ball');
-        sprite.clearTint();
-      } else if (item.special) {
-        sprite.setTexture('positive_ball');
-        sprite.setTint(0x00ccff);
-      } else if (item.value > 0) {
+      if (item.value > 0) {
         sprite.setTexture('positive_ball');
         sprite.clearTint();
       } else {
@@ -96,20 +83,17 @@ export class NextQueue {
         sprite.clearTint();
       }
 
-      // Display size (diameter 38px)
-      sprite.setDisplaySize(38, 38);
+      const previewSize = 42;
+      const isFirst = i === 0;
+      const size = isFirst ? previewSize * 1.05 : previewSize * 0.92;
+      sprite.setScale(1, 1);
+      sprite.setDisplaySize(size, size);
+      sprite.setAlpha(isFirst ? 1 : 0.55);
+      label.setAlpha(isFirst ? 1 : 0.55);
+      label.setScale(isFirst ? 1.05 : 0.92);
 
-      let labelText = '';
-      if (item.special === 'multiply') {
-        labelText = '×2';
-      } else if (item.special === 'divide') {
-        labelText = '÷2';
-      } else if (item.special === 'blast' || item.special === 'slice' || item.special === 'chance') {
-        labelText = '';
-      } else {
-        const prefix = item.value > 0 ? '+' : '';
-        labelText = `${prefix}${item.value}`;
-      }
+      const prefix = item.value > 0 ? '+' : '';
+      const labelText = `${prefix}${item.value}`;
       if (labelText !== this.cachedLabelText[i]) {
         this.cachedLabelText[i] = labelText;
         label.setText(labelText);

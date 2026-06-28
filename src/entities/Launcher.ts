@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import {
   LAUNCHER_Y, LAUNCHER_MIN_X, LAUNCHER_MAX_X, CONTAINER_CENTER_X,
-  DROP_COOLDOWN, CONTAINER_BORDER_COLOR, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP
+  DROP_COOLDOWN, CONTAINER_BORDER_COLOR, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP,
+  CURE_L1_LAUNCHER_Y,
 } from '../core/Constants';
 
 /**
@@ -32,9 +33,26 @@ export class Launcher {
   private invertedContainerBottom = CONTAINER_BOTTOM;
   private aimThrottle = false;
   private aimFrame = 0;
+  private cureMinimal = false;
 
   setAimThrottle(on: boolean): void {
     this.aimThrottle = on;
+  }
+
+  setCureMinimal(on: boolean): void {
+    this.cureMinimal = on;
+    if (on) {
+      this.container.setY(CURE_L1_LAUNCHER_Y);
+      this.ballPreview.setVisible(false);
+      this.ballLabel.setVisible(false);
+      this.bodyGfx.setVisible(false);
+    } else {
+      this.container.setY(this.invertedMode ? this.invertedContainerBottom + 52 : LAUNCHER_Y);
+      this.ballPreview.setVisible(true);
+      this.ballLabel.setVisible(true);
+      this.bodyGfx.setVisible(true);
+      this.drawBody();
+    }
   }
 
   updateBounds(minX: number, maxX: number): void {
@@ -144,7 +162,9 @@ export class Launcher {
   setPreview(value: number, special: string | null): void {
     this.previewValue = value;
     this.previewSpecial = special;
-    this.drawPreview();
+    if (!this.cureMinimal) {
+      this.drawPreview();
+    }
   }
 
   /**
@@ -272,8 +292,8 @@ export class Launcher {
 
   private drawAimLine(time: number): void {
     this.aimLine.clear();
-    const alpha = 0.2 + 0.15 * Math.sin(time * 0.005);
-    this.aimLine.lineStyle(2, 0x00ccff, alpha);
+    const alpha = this.cureMinimal ? 0.12 : 0.2 + 0.15 * Math.sin(time * 0.005);
+    this.aimLine.lineStyle(this.cureMinimal ? 1 : 2, this.cureMinimal ? 0x475569 : 0x00ccff, alpha);
 
     if (this.invertedMode) {
       const startY = -32;
@@ -284,7 +304,7 @@ export class Launcher {
       this.aimLine.strokePath();
     } else {
       const startY = 32;
-      const endY = 800;
+      const endY = this.cureMinimal ? 680 : 800;
       this.aimLine.beginPath();
       this.aimLine.moveTo(0, startY);
       this.aimLine.lineTo(0, endY);

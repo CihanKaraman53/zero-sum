@@ -26,6 +26,7 @@ export class Background {
   private wallPulseTween?: Phaser.Tweens.Tween;
   private isTwisted = false;
   private flipVignette = false;
+  private cureMinimal = false;
 
   public currentLeft: number = CONTAINER_LEFT;
   public currentRight: number = CONTAINER_RIGHT;
@@ -62,6 +63,8 @@ export class Background {
   }
 
   update(time: number): void {
+    if (this.cureMinimal) return;
+
     this.gridOffset = (time * 0.01) % 40;
     const gridStep = Math.floor(this.gridOffset / 4);
     if (gridStep !== this.lastGridStep) {
@@ -72,6 +75,23 @@ export class Background {
     this.overflowTick++;
     if (this.overflowTick % 2 === 0) {
       this.drawOverflowLine(time);
+    }
+  }
+
+  public setCureMinimal(on: boolean): void {
+    this.cureMinimal = on;
+    this.cupVisual.setVisible(!on);
+    this.vignetteGfx.setVisible(!on);
+    this.overflowGfx.setVisible(!on);
+    this.bgGfx.clear();
+    if (on) {
+      this.bgGfx.fillStyle(0x030308, 1);
+      this.bgGfx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    } else {
+      this.drawBackground();
+      this.drawInterior();
+      this.drawWalls();
+      this.drawVignette();
     }
   }
 

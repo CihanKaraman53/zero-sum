@@ -99,3 +99,13 @@ export const SCORE_BLACKHOLE_BASE = 200;
 // ── Reusable temp vectors (zero allocation in game loop) ──
 export const TEMP_VEC = { x: 0, y: 0 };
 export const TEMP_VEC2 = { x: 0, y: 0 };
+
+// ── Level 1 “Zero Cure” visual shell (layout only — gameplay unchanged) ──
+export const CURE_L1_QUEST_WIDTH = 118;
+export const CURE_L1_PLAY_WIDTH = GAME_WIDTH - CURE_L1_QUEST_WIDTH;
+export const CURE_L1_PADDING = 14;
+export const CURE_L1_CONTAINER_TOP = 148;
+export const CURE_L1_LAUNCHER_Y = 118;
+export const CURE_L1_QUEST_TARGET = 64;
+export const CURE_L1_QUEST_REQUIRED = 3;
+
