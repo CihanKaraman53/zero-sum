@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  getBallRadius, getBallVisualRadius, SPECIAL_COLOR, KING_COLOR,
+  getBallRadius, getBallVisualRadius, SPECIAL_COLOR,
   CAT_BALL, CAT_WALL, CONTAINER_BOTTOM,
   BALL_RESTITUTION, BALL_FRICTION, BALL_FRICTION_AIR, BALL_DENSITY,
 } from '../core/Constants';
@@ -34,10 +34,8 @@ export class JellyBall implements BallEntity {
   scene: Phaser.Scene;
   body: MatterJS.BodyType | null = null;
   container!: Phaser.GameObjects.Container;
-  gfx!: Phaser.GameObjects.Graphics;
   sprite!: Phaser.GameObjects.Sprite;
   label!: Phaser.GameObjects.Text;
-  crownGfx!: Phaser.GameObjects.Graphics;
 
   value: number = 2;
   sign: number = 1;
@@ -58,9 +56,16 @@ export class JellyBall implements BallEntity {
   private lastTextureKey = '';
   private lastLabelText = '';
   private lastFontSize = '';
-  private frozenRingDrawn = false;
-  private kingDrawn = false;
+  private lastStyleFaction: BallFaction | '' = '';
   private cachedBaseScale = 0;
+  /** Container'ın display list'te olup olmadığı — pool dönüşünde tamamen çıkar. */
+  private inDisplayList = false;
+  /** Last sprite scale we wrote — skip Phaser setter if unchanged. */
+  private lastDrawnScaleX = 0;
+  private lastDrawnScaleY = 0;
+  private lastDrawnRotation = 0;
+  private lastDrawnX = NaN;
+  private lastDrawnY = NaN;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -90,9 +95,6 @@ export class JellyBall implements BallEntity {
     this.container.setVisible(false);
     this.container.setDepth(25);
 
-    this.gfx = this.scene.add.graphics();
-    this.container.add(this.gfx);
-
     this.sprite = this.scene.add.sprite(0, 0, GREEN_THROWABLE_TEXTURE);
     this.container.add(this.sprite);
 
@@ -104,9 +106,7 @@ export class JellyBall implements BallEntity {
     applyBallLabelStyle(this.label, 'green');
     this.container.add(this.label);
 
-    this.crownGfx = this.scene.add.graphics();
-    this.crownGfx.setVisible(false);
-    this.container.add(this.crownGfx);
+    this.inDisplayList = true;
   }
 
   activate(
@@ -130,12 +130,16 @@ export class JellyBall implements BallEntity {
     this.anchorY = y;
     this.visualRadius = special ? 22 : getBallVisualRadius(this.absValue);
     this.radius = special ? 18 : getBallRadius(this.absValue);
-    this.kingDrawn = false;
-    this.frozenRingDrawn = false;
     this.lastTextureKey = '';
     this.lastLabelText = '';
     this.lastFontSize = '';
+    this.lastStyleFaction = '';
     this.wobbleScale = 0;
+    this.lastDrawnScaleX = 0;
+    this.lastDrawnScaleY = 0;
+    this.lastDrawnRotation = 0;
+    this.lastDrawnX = NaN;
+    this.lastDrawnY = NaN;
 
     this.body = this.scene.matter.add.circle(x, y, this.radius, {
       restitution: BALL_RESTITUTION,
@@ -144,6 +148,7 @@ export class JellyBall implements BallEntity {
       density: BALL_DENSITY,
       isStatic: frozen,
       ignoreGravity: frozen,
+      sleepThreshold: 30,
       collisionFilter: {
         category: CAT_BALL,
         mask: CAT_BALL | CAT_WALL,
@@ -181,7 +186,6 @@ export class JellyBall implements BallEntity {
   deactivate(): void {
     this.active = false;
     this.harvesting = false;
-    this.container.setVisible(false);
     if (this.squashTween) {
       this.squashTween.stop();
       this.squashTween = null;
@@ -193,15 +197,17 @@ export class JellyBall implements BallEntity {
       this.scene.matter.world.remove(this.body);
       this.body = null;
     }
+    this.container.setVisible(false);
   }
 
   syncPosition(): void {
     if (!this.active || !this.body || this.frozen || this.harvesting) return;
 
     const body = this.body;
+    const wobble = this.wobbleScale;
 
     // Fully asleep pile — zero work until a collision wakes the body
-    if (body.isSleeping && this.wobbleScale === 0) return;
+    if (body.isSleeping && wobble === 0) return;
 
     const px = body.position.x;
     const py = body.position.y;
@@ -209,28 +215,38 @@ export class JellyBall implements BallEntity {
     const vy = body.velocity.y;
     const speedSq = vx * vx + vy * vy;
 
-    this.container.setPosition(px, py);
+    if (px !== this.lastDrawnX || py !== this.lastDrawnY) {
+      this.container.setPosition(px, py);
+      this.lastDrawnX = px;
+      this.lastDrawnY = py;
+    }
 
     const baseScale = this.cachedBaseScale;
+    let targetScaleX: number;
+    let targetScaleY: number;
+    let targetRotation: number;
 
     if (speedSq > 2.25) {
       const speed = Math.sqrt(speedSq);
-      const angle = Math.atan2(vy, vx);
-      this.sprite.setRotation(angle);
+      targetRotation = Math.atan2(vy, vx);
       const stretch = Math.min(speed * 0.02, 0.4);
-      this.sprite.setScale(
-        baseScale * (1 + stretch + this.wobbleScale),
-        baseScale * (1 - stretch + this.wobbleScale)
-      );
+      targetScaleX = baseScale * (1 + stretch + wobble);
+      targetScaleY = baseScale * (1 - stretch + wobble);
     } else {
-      this.sprite.setRotation(body.angle);
-      this.sprite.setScale(
-        baseScale * (1 + this.wobbleScale),
-        baseScale * (1 - this.wobbleScale)
-      );
+      targetRotation = body.angle;
+      targetScaleX = baseScale * (1 + wobble);
+      targetScaleY = baseScale * (1 - wobble);
     }
-    this.sprite.setX(0);
-    this.label.setRotation(0);
+
+    if (targetRotation !== this.lastDrawnRotation) {
+      this.sprite.setRotation(targetRotation);
+      this.lastDrawnRotation = targetRotation;
+    }
+    if (targetScaleX !== this.lastDrawnScaleX || targetScaleY !== this.lastDrawnScaleY) {
+      this.sprite.setScale(targetScaleX, targetScaleY);
+      this.lastDrawnScaleX = targetScaleX;
+      this.lastDrawnScaleY = targetScaleY;
+    }
 
     if (py > CONTAINER_BOTTOM + 100 || px < -50 || px > 530) {
       this.deactivate();
@@ -259,9 +275,8 @@ export class JellyBall implements BallEntity {
   }
 
   makeKing(): void {
-    if (this.isKing) return;
+    // Level 1 cure modunda king mekaniği yok — boş bırak ama API'yi koru.
     this.isKing = true;
-    this.applyCrown(true);
   }
 
   playSquash(): void {
@@ -357,32 +372,21 @@ export class JellyBall implements BallEntity {
 
     const labelText = this.getLabelText();
     const fontSize = this.getLabelFontSize();
-    if (force || labelText !== this.lastLabelText) {
+    // `force` bayrağı text rebake (=texture yeniden render) tetiklemesin — sadece değer farklıysa.
+    if (labelText !== this.lastLabelText) {
       this.label.setText(labelText);
       this.lastLabelText = labelText;
     }
-    if (force || fontSize !== this.lastFontSize) {
+    if (fontSize !== this.lastFontSize) {
       this.label.setFontSize(fontSize);
       this.lastFontSize = fontSize;
     }
     this.label.setVisible(labelText.length > 0);
-    applyBallLabelStyle(this.label, this.faction);
-    this.layoutThrowableLabel();
-
-    if (this.frozen && !this.frozenRingDrawn) {
-      const r = this.radius;
-      this.gfx.clear();
-      this.gfx.lineStyle(3, 0x4488ff, 0.8);
-      this.gfx.strokeCircle(0, 0, r + 3);
-      this.gfx.lineStyle(1, 0xaaddff, 0.5);
-      this.gfx.strokeCircle(0, 0, r + 6);
-      this.frozenRingDrawn = true;
-    } else if (!this.frozen && this.frozenRingDrawn) {
-      this.gfx.clear();
-      this.frozenRingDrawn = false;
+    if (this.faction !== this.lastStyleFaction) {
+      applyBallLabelStyle(this.label, this.faction);
+      this.lastStyleFaction = this.faction;
     }
-
-    this.applyCrown(force);
+    this.layoutThrowableLabel();
   }
 
   private layoutThrowableLabel(): void {
@@ -392,24 +396,5 @@ export class JellyBall implements BallEntity {
       return;
     }
     applyThrowableLabel(this.label, this.visualRadius);
-  }
-
-  private applyCrown(force = false): void {
-    if (this.isKing && !this.kingDrawn) {
-      const r = this.radius;
-      this.crownGfx.clear();
-      this.crownGfx.setVisible(true);
-      this.crownGfx.fillStyle(KING_COLOR, 1);
-      const cy = -r - 4;
-      this.crownGfx.fillTriangle(-8, cy, 0, cy - 10, 8, cy);
-      this.crownGfx.fillTriangle(-12, cy, -4, cy - 8, 4, cy);
-      this.crownGfx.fillTriangle(-4, cy, 4, cy - 8, 12, cy);
-      this.crownGfx.fillRect(-12, cy, 24, 4);
-      this.kingDrawn = true;
-    } else if (!this.isKing && (this.kingDrawn || force)) {
-      this.crownGfx.clear();
-      this.crownGfx.setVisible(false);
-      this.kingDrawn = false;
-    }
   }
 }

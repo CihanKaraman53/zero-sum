@@ -70,6 +70,15 @@ export class ObjectPool<T> {
     return this.activeCount;
   }
 
+  /**
+   * Direct access to the internal active slice — hot paths can iterate without
+   * a per-item callback (avoids ~15 closure invocations per frame).
+   * Only valid up to getActiveCount(); do not mutate.
+   */
+  getActiveList(): readonly T[] {
+    return this.activeList;
+  }
+
   /** Iterate live objects — zero allocation. */
   forEachActive(fn: (item: T) => void): void {
     for (let i = 0; i < this.activeCount; i++) {

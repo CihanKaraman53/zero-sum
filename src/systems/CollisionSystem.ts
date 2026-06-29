@@ -38,8 +38,11 @@ export class CollisionSystem {
   private processedPairs = new Set<number>();
   /** Ball-ball pairs queued during collisionstart; resolved after the Matter step. */
   private pendingPairs: CollisionPair[] = [];
+  /** Tick counter — used to throttle the overlap sweep. */
+  private overlapTick = 0;
+  /** Set when a value changes (activate/merge/setValue), forcing one overlap sweep. */
+  private pendingOverlapSweep = false;
   private readonly onCollisionStart = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
-  private readonly onCollisionActive = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
   private readonly onAfterUpdate = () => this.flushPendingCollisions();
   // Fusion callback for level manager
   onFusion: ((value: number, faction: BallFaction, source: BallEntity) => void) | null = null;
@@ -62,9 +65,8 @@ export class CollisionSystem {
     this.scoring = scoring;
     this.combo = combo;
 
-    // collisionstart only — defer pair resolution to afterUpdate
+    // collisionstart only — collisionactive fires per pair per step (huge CPU sink with stacks)
     this.scene.matter.world.on('collisionstart', this.onCollisionStart);
-    this.scene.matter.world.on('collisionactive', this.onCollisionActive);
     this.scene.matter.world.on('afterupdate', this.onAfterUpdate);
   }
 
@@ -73,9 +75,13 @@ export class CollisionSystem {
     this.pendingPairs.length = 0;
   }
 
+  /** External nudge — call after value changes to force one overlap sweep next step. */
+  requestOverlapSweep(): void {
+    this.pendingOverlapSweep = true;
+  }
+
   destroy(): void {
     this.scene.matter.world.off('collisionstart', this.onCollisionStart);
-    this.scene.matter.world.off('collisionactive', this.onCollisionActive);
     this.scene.matter.world.off('afterupdate', this.onAfterUpdate);
   }
 
@@ -183,45 +189,59 @@ export class CollisionSystem {
       this.processCollision(ballA, ballB);
     }
 
-    this.checkOverlapMerges();
+    // Throttle the N² overlap sweep — runs every 6 physics steps, or on demand.
+    this.overlapTick++;
+    if (this.pendingOverlapSweep || pending.length > 0 || this.overlapTick >= 6) {
+      this.overlapTick = 0;
+      this.pendingOverlapSweep = false;
+      this.checkOverlapMerges();
+    }
 
     pending.length = 0;
     this.processedPairs.clear();
   }
 
-  /** Görsel ≈ fizik dairesi — küçük tolerans yeterli. */
+  /**
+   * Görsel ≈ fizik dairesi — küçük tolerans yeterli.
+   * Zero-alloc: iterates the pool's raw active slice directly.
+   */
   private checkOverlapMerges(): void {
-    const active: JellyBall[] = [];
-    this.ballPool.forEachActive((b) => active.push(b as JellyBall));
+    const list = this.ballPool.getActiveList();
+    const count = this.ballPool.getActiveCount();
 
-    for (let i = 0; i < active.length; i++) {
-      const a = active[i];
+    for (let i = 0; i < count; i++) {
+      const a = list[i];
       if (!a.active || !a.body || a.harvesting || a.frozen || a.special) continue;
+      const bodyA = a.body;
+      const ax = bodyA.position.x;
+      const ay = bodyA.position.y;
+      const aSign = a.sign;
+      const aAbs = a.absValue;
+      const aFaction = a.faction;
+      const aRadius = a.radius;
 
-      for (let j = i + 1; j < active.length; j++) {
-        if (!a.active || !a.body || a.harvesting || a.frozen || a.special) break;
-
-        const b = active[j];
+      for (let j = i + 1; j < count; j++) {
+        const b = list[j];
         if (!b.active || !b.body || b.harvesting || b.frozen || b.special) continue;
-        if (a.faction !== b.faction) continue;
-        if (a.sign !== b.sign || a.absValue !== b.absValue) continue;
+        if (b.faction !== aFaction) continue;
+        if (b.sign !== aSign || b.absValue !== aAbs) continue;
 
-        const bodyA = a.body;
         const bodyB = b.body;
-        if (!bodyA?.id || !bodyB?.id) continue;
+        if (!bodyA.id || !bodyB.id) break;
 
         const pairId = this.pairKey(bodyA.id, bodyB.id);
         if (this.processedPairs.has(pairId)) continue;
 
-        const dx = bodyA.position.x - bodyB.position.x;
-        const dy = bodyA.position.y - bodyB.position.y;
+        const dx = ax - bodyB.position.x;
+        const dy = ay - bodyB.position.y;
         const distSq = dx * dx + dy * dy;
-        const touch = a.radius + b.radius + 2;
+        const touch = aRadius + b.radius + 2;
         if (distSq <= touch * touch) {
           this.processedPairs.add(pairId);
-          const lower = bodyA.position.y >= bodyB.position.y ? a : b;
+          const lower = ay >= bodyB.position.y ? a : b;
           const upper = lower === a ? b : a;
           this.handleMerge(lower, upper);
+          if (!a.active) break;
         }
       }
     }
@@ -336,6 +356,7 @@ export class CollisionSystem {
     this.releaseBall(other);
 
     survivor.setValue(newValue);
+    this.pendingOverlapSweep = true;
     const settleY = bottomY - survivor.radius;
     const mergeY = settleY;
 

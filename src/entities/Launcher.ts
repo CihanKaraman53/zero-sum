@@ -310,6 +310,10 @@ export class Launcher {
    * Set the preview ball info.
    */
   setPreview(value: number, special: string | null, faction: BallFaction = 'green'): void {
+    // Aynı içerikle tekrar çağrılırsa drawPreview'u atla — her drop'ta setPreview çağrılıyor
+    if (value === this.previewValue && special === this.previewSpecial && faction === this.previewFaction) {
+      return;
+    }
     this.previewValue = value;
     this.previewSpecial = special;
     this.previewFaction = faction;

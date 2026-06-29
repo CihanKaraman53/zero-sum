@@ -31,6 +31,11 @@ export class Background {
   private cureFogGfx: Phaser.GameObjects.Graphics | null = null;
   private cureDustGfx: Phaser.GameObjects.Graphics | null = null;
   private fogPhase = 0;
+  private atmosphereTick = 0;
+  /** Fog re-rasterizes every Nth frame (slow phase — invisible to the eye). */
+  private static readonly FOG_REDRAW_INTERVAL = 6;
+  /** Dust positions update every frame for smooth drift, but only commit if anything moved noticeably. */
+  private static readonly DUST_REDRAW_INTERVAL = 2;
   private readonly dustMotes: { x: number; y: number; vy: number; r: number; a: number }[] = [];
 
   public currentLeft: number = CONTAINER_LEFT;
@@ -120,32 +125,43 @@ export class Background {
   private updateCureAtmosphere(time: number): void {
     if (!this.cureFogGfx || !this.cureDustGfx) return;
 
-    this.fogPhase = time * 0.00012;
+    this.atmosphereTick++;
     const playRight = this.currentRight;
 
-    this.cureFogGfx.clear();
-    const bands = 4;
-    for (let i = 0; i < bands; i++) {
-      const t = i / bands;
-      const y = (GAME_HEIGHT * t) + Math.sin(this.fogPhase + i * 1.3) * 10;
-      const h = GAME_HEIGHT / bands + 16;
-      const alpha = 0.02 + t * 0.025;
-      this.cureFogGfx.fillStyle(0xc8e8c0, alpha);
-      this.cureFogGfx.fillRect(0, y, playRight, h);
+    // Sis bantları çok yavaş ilerliyor — 6 frame'de bir yeniden rasterleme yeterli (~10fps, göz fark etmez).
+    if (this.atmosphereTick % Background.FOG_REDRAW_INTERVAL === 0) {
+      this.fogPhase = time * 0.00012;
+      this.cureFogGfx.clear();
+      const bands = 4;
+      for (let i = 0; i < bands; i++) {
+        const t = i / bands;
+        const y = (GAME_HEIGHT * t) + Math.sin(this.fogPhase + i * 1.3) * 10;
+        const h = GAME_HEIGHT / bands + 16;
+        const alpha = 0.02 + t * 0.025;
+        this.cureFogGfx.fillStyle(0xc8e8c0, alpha);
+        this.cureFogGfx.fillRect(0, y, playRight, h);
+      }
     }
 
-    this.cureDustGfx.clear();
-    for (const m of this.dustMotes) {
-      m.y += m.vy;
-      m.x += Math.sin(time * 0.001 + m.y * 0.02) * 0.12;
+    // Toz pozisyonları her frame güncellenir (akış için), ama vertex buffer 2 frame'de bir.
+    const dustRedraw = this.atmosphereTick % Background.DUST_REDRAW_INTERVAL === 0;
+    const sinFactor = Math.sin(time * 0.001);
+    if (dustRedraw) this.cureDustGfx.clear();
+
+    for (let i = 0; i < this.dustMotes.length; i++) {
+      const m = this.dustMotes[i];
+      m.y += m.vy * Background.DUST_REDRAW_INTERVAL;
+      m.x += (sinFactor + m.y * 0.02) * 0.12;
       if (m.y < -8) {
         m.y = GAME_HEIGHT + 8;
         m.x = Math.random() * playRight;
       }
       if (m.x > playRight) m.x = Math.random() * playRight;
 
-      this.cureDustGfx.fillStyle(0xe8ffd8, m.a);
-      this.cureDustGfx.fillCircle(m.x, m.y, m.r);
+      if (dustRedraw) {
+        this.cureDustGfx.fillStyle(0xe8ffd8, m.a);
+        this.cureDustGfx.fillCircle(m.x, m.y, m.r);
+      }
     }
   }
 

@@ -81,30 +81,18 @@ export function ballLabelStyle(faction: BallFaction): {
   color: string;
   stroke: string;
   strokeThickness: number;
-  shadowColor: string;
-  shadowBlur: number;
-  shadowOffsetY: number;
 } {
   if (faction === 'green') {
-    return {
-      color: '#ffe566',
-      stroke: '#1f3a18',
-      strokeThickness: 4,
-      shadowColor: '#0a1408',
-      shadowBlur: 5,
-      shadowOffsetY: 2,
-    };
+    return { color: '#ffe566', stroke: '#1f3a18', strokeThickness: 4 };
   }
-  return {
-    color: '#ffe4f0',
-    stroke: '#4a1028',
-    strokeThickness: 3,
-    shadowColor: '#000000',
-    shadowBlur: 3,
-    shadowOffsetY: 1,
-  };
+  return { color: '#ffe4f0', stroke: '#4a1028', strokeThickness: 3 };
 }
 
+/**
+ * Stroke alone gives enough contrast on the mushroom cap — `setShadow` doubles
+ * canvas text render cost (separate shadow pass per stroke + fill), which was
+ * 256 ms in the last profile. Skip it.
+ */
 export function applyBallLabelStyle(
   text: Phaser.GameObjects.Text,
   faction: BallFaction,
@@ -112,5 +100,4 @@ export function applyBallLabelStyle(
   const style = ballLabelStyle(faction);
   text.setColor(style.color);
   text.setStroke(style.stroke, style.strokeThickness);
-  text.setShadow(style.shadowOffsetY, style.shadowOffsetY, style.shadowColor, style.shadowBlur, true, true);
 }

@@ -70,9 +70,13 @@ export const OVERFLOW_COLOR = 0xff2244;
 
 // ── Physics ──
 export const GRAVITY_Y = 1.2;
-export const FIXED_TIMESTEP = 16.666; // 60 FPS in ms
-/** Fixed delta passed to Matter.Engine.update — never scales with frame lag. */
-export const MATTER_DELTA = FIXED_TIMESTEP;
+export const FIXED_TIMESTEP = 16.666; // 60 FPS in ms (render tick)
+/**
+ * Matter physics @ 60Hz — Matter.js Engine.update warns if delta > 16.667ms,
+ * and ball stacking becomes unstable at 30Hz with this gravity/restitution.
+ */
+export const MATTER_DELTA = 16.666;
+export const MATTER_FPS = 60;
 
 /** Jelly ball Matter body — natural slide, soft bounce, jelly feel. */
 export const BALL_RESTITUTION = 0.08;

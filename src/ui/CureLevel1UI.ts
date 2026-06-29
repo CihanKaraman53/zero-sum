@@ -65,6 +65,8 @@ interface UpcomingSlot {
   glow: Phaser.GameObjects.Arc;
   sprite: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
+  /** Cache key — skip re-render if next-up queue did not change for this slot. */
+  lastKey: string;
 }
 
 const FX_DEPTH = 55;
@@ -176,7 +178,7 @@ export class CureLevel1UI {
 
       slotRoot.add([glow, sprite, label]);
       this.upcomingRoot.add(slotRoot);
-      this.upcomingSlots.push({ root: slotRoot, glow, sprite, label });
+      this.upcomingSlots.push({ root: slotRoot, glow, sprite, label, lastKey: '' });
     }
 
     this.root.add(this.upcomingRoot);
@@ -187,9 +189,15 @@ export class CureLevel1UI {
       const item = queue[i + 1];
       const slot = this.upcomingSlots[i];
       if (!item) {
-        slot.root.setVisible(false);
+        if (slot.lastKey !== '__hidden') {
+          slot.root.setVisible(false);
+          slot.lastKey = '__hidden';
+        }
         continue;
       }
+      const key = `${item.value}|${item.special ?? ''}|${item.faction}`;
+      if (key === slot.lastKey) continue;
+      slot.lastKey = key;
       slot.root.setVisible(true);
       this.applyThrowablePreview(slot.sprite, slot.label, item, UPCOMING_BALL_PX);
       slot.glow.setRadius(UPCOMING_BALL_PX * 0.52);
@@ -229,9 +237,13 @@ export class CureLevel1UI {
 
     label.setVisible(true);
     const prefix = item.value > 0 ? '+' : '';
-    label.setText(`${prefix}${item.value}`);
-    label.setFontSize(throwableLabelFontSize(visualR, absVal));
-    applyBallLabelStyle(label, item.faction);
+    const textStr = `${prefix}${item.value}`;
+    const fontSizeStr = throwableLabelFontSize(visualR, absVal);
+    // Text rebake'ten kaçınmak için datalar GameObject'in kendisinde tutuluyor.
+    const cache = label as Phaser.GameObjects.Text & { _lastText?: string; _lastFont?: string; _lastFaction?: string };
+    if (cache._lastText !== textStr) { label.setText(textStr); cache._lastText = textStr; }
+    if (cache._lastFont !== fontSizeStr) { label.setFontSize(fontSizeStr); cache._lastFont = fontSizeStr; }
+    if (cache._lastFaction !== item.faction) { applyBallLabelStyle(label, item.faction); cache._lastFaction = item.faction; }
     applyThrowableLabel(label, visualR);
   }
 

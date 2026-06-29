@@ -188,9 +188,12 @@ export class GameScene extends Phaser.Scene {
 
     this.background.update(time);
 
-    this.ballPool.forEachActive((ball) => {
-      if (ball.active && !ball.frozen) ball.syncPosition();
-    });
+    // Hot path — avoid per-ball closure allocation
+    const list = this.ballPool.getActiveList();
+    const count = this.ballPool.getActiveCount();
+    for (let i = 0; i < count; i++) {
+      list[i].syncPosition();
+    }
   }
 
   private processSpawnQueue(time: number): void {
@@ -273,10 +276,12 @@ export class GameScene extends Phaser.Scene {
       this.containerRight + 50, GAME_HEIGHT / 2, 100, GAME_HEIGHT, wallOpts,
     ) as MatterJS.BodyType;
 
+    // Move the quest panel wall fully outside the play area so balls sitting
+    // near the right edge do not generate continuous contact events.
     this.questWall = this.matter.add.rectangle(
-      CURE_L1_PLAY_WIDTH + 2,
+      CURE_L1_PLAY_WIDTH + 50,
       GAME_HEIGHT / 2,
-      16,
+      100,
       GAME_HEIGHT,
       wallOpts,
     ) as MatterJS.BodyType;
