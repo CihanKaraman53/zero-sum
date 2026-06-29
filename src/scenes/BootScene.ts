@@ -53,6 +53,7 @@ export class BootScene extends Phaser.Scene {
     this.load.image('launcher', 'assets/launcher.png');
     this.load.image('bottle_01', 'assets/bottle_01.png');
     this.load.image('bluecap_mushroom', 'assets/bluecap_mushroom.png');
+    this.load.image('greater_stamina_potion', 'assets/greater_stamina_potion.png');
     this.load.image('mage_gloves', 'assets/mage_gloves.png');
   }
 
@@ -61,6 +62,7 @@ export class BootScene extends Phaser.Scene {
       'positive_ball', 'negative_ball', 'x2_ball', 'blast_ball',
       'slice_ball', 'dice_ball', 'magnet_ball', 'ghost_ball', 'launcher',
       'bottle_01', 'bottle_01_shell', 'bluecap_mushroom', 'bluecap_mushroom_clean',
+      'greater_stamina_potion', 'stamina_potion_clean',
       'mage_gloves', 'mage_gloves_clean',
     ];
     for (const key of keys) {
@@ -74,6 +76,7 @@ export class BootScene extends Phaser.Scene {
     this.applyTextureFilters();
     this.buildBottleShellTexture();
     this.buildBluecapMushroomTexture();
+    this.buildStaminaPotionTexture();
     this.buildMageGlovesTexture();
     this.time.delayedCall(500, () => {
       this.scene.start('MenuScene');
@@ -100,6 +103,33 @@ export class BootScene extends Phaser.Scene {
       const g = pixels.data[i + 1];
       const b = pixels.data[i + 2];
       if (r < 48 && g < 48 && b < 48) {
+        pixels.data[i + 3] = 0;
+      }
+    }
+    ctx.putImageData(pixels, 0, 0);
+    this.textures.addCanvas(key, canvas);
+  }
+
+  /** Stamina potion — atılabilir yeşil top, keyed black background. */
+  private buildStaminaPotionTexture(): void {
+    const key = 'stamina_potion_clean';
+    if (this.textures.exists(key)) return;
+
+    const src = this.textures.get('greater_stamina_potion').getSourceImage() as HTMLImageElement;
+    const w = src.width;
+    const h = src.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(src, 0, 0, w, h);
+
+    const pixels = ctx.getImageData(0, 0, w, h);
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      const r = pixels.data[i];
+      const g = pixels.data[i + 1];
+      const b = pixels.data[i + 2];
+      if (r < 52 && g < 52 && b < 52) {
         pixels.data[i + 3] = 0;
       }
     }

@@ -3,6 +3,18 @@ import Phaser from 'phaser';
 export type BallSpecial = 'multiply' | 'divide' | 'blast' | 'slice' | 'chance' | null;
 export type BallFaction = 'green' | 'red';
 
+/** Yeşil atılabilir top — mavi mantar. */
+export const GREEN_THROWABLE_TEXTURE = 'bluecap_mushroom_clean';
+
+/** bluecap_mushroom.png — opaque bbox yarıçapları (kaynak piksel, merkez = 256). */
+export const MUSHROOM_OPAQUE_HALF_W = 164.5;
+export const MUSHROOM_OPAQUE_HALF_H = 194;
+
+/** Görseli fizik dairesine oturt: şapka genişliği = çap (2×radius). */
+export function mushroomScaleForRadius(radius: number): number {
+  return radius / MUSHROOM_OPAQUE_HALF_W;
+}
+
 /** Shared contract for JellyBall entities. */
 export interface BallEntity {
   poolKind: 'jelly';
@@ -31,7 +43,7 @@ export function attachBallBody(body: MatterJS.BodyType, ball: BallEntity): void 
 }
 
 export function factionTexture(faction: BallFaction): string {
-  return faction === 'green' ? 'positive_ball' : 'negative_ball';
+  return faction === 'green' ? GREEN_THROWABLE_TEXTURE : 'negative_ball';
 }
 
 export function ballLabelStyle(faction: BallFaction): {

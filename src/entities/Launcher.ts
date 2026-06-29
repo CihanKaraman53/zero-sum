@@ -4,7 +4,7 @@ import {
   DROP_COOLDOWN, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP,
   CURE_L1_LAUNCHER_Y, GAME_HEIGHT,
 } from '../core/Constants';
-import { factionTexture, BallFaction, applyBallLabelStyle } from './BallEntity';
+import { factionTexture, BallFaction, applyBallLabelStyle, GREEN_THROWABLE_TEXTURE } from './BallEntity';
 
 /** Cure mode — mage gloves hold the preview orb between the palms. */
 const CURE_GLOVE_SIZE = 68;
@@ -221,7 +221,7 @@ export class Launcher {
     this.container.add(this.glovesImg);
 
     // Ball preview (held between mage gloves in cure mode)
-    this.ballPreview = scene.add.sprite(0, 0, 'positive_ball');
+    this.ballPreview = scene.add.sprite(0, 0, GREEN_THROWABLE_TEXTURE);
     this.container.add(this.ballPreview);
 
     this.ballLabel = scene.add.text(0, 0, '', {

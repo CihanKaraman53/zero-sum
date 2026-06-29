@@ -19,9 +19,9 @@ export const LEVEL: LevelConfig = {
   name: 'Genesis Matrix',
   type: 'board_clear',
   clearCount: 9999,
-  spawnPool: [2],
+  spawnPool: [2, 4, 8, 16],
   specialChance: 0,
   gravity: 1.0,
   dropSpeed: 1.2,
-  description: 'İlk Adım: Aynı sayıları birleştir! Zıt sayıları çarpıştırarak yok et.',
+  description: 'Aynı sayıları birleştirerek +256 iksirini doldur!',
 };

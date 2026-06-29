@@ -39,6 +39,7 @@ export class CollisionSystem {
   /** Ball-ball pairs queued during collisionstart; resolved after the Matter step. */
   private pendingPairs: CollisionPair[] = [];
   private readonly onCollisionStart = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
+  private readonly onCollisionActive = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
   private readonly onAfterUpdate = () => this.flushPendingCollisions();
   // Fusion callback for level manager
   onFusion: ((value: number, faction: BallFaction, source: BallEntity) => void) | null = null;
@@ -63,7 +64,7 @@ export class CollisionSystem {
 
     // collisionstart only — defer pair resolution to afterUpdate
     this.scene.matter.world.on('collisionstart', this.onCollisionStart);
-    // Defer merge/shrink/spawn to afterUpdate so bodies are not mutated mid-Engine.update
+    this.scene.matter.world.on('collisionactive', this.onCollisionActive);
     this.scene.matter.world.on('afterupdate', this.onAfterUpdate);
   }
 
@@ -74,6 +75,7 @@ export class CollisionSystem {
 
   destroy(): void {
     this.scene.matter.world.off('collisionstart', this.onCollisionStart);
+    this.scene.matter.world.off('collisionactive', this.onCollisionActive);
     this.scene.matter.world.off('afterupdate', this.onAfterUpdate);
   }
 
@@ -130,9 +132,12 @@ export class CollisionSystem {
     const len = pending.length;
     for (let i = 0; i < len; i++) {
       const pair = pending[i];
+      if (!pair.bodyA?.id || !pair.bodyB?.id) continue;
+
       const ballA = this.getBall(pair.bodyA);
       const ballB = this.getBall(pair.bodyB);
       if (!ballA || !ballB || !ballA.active || !ballB.active) continue;
+      if ((ballA as JellyBall).harvesting || (ballB as JellyBall).harvesting) continue;
 
       // Green ↔ red: normal physics bounce, but NO merge / zero-sum / shrink.
       if (ballA.faction !== ballB.faction) {
@@ -177,8 +182,49 @@ export class CollisionSystem {
 
       this.processCollision(ballA, ballB);
     }
+
+    this.checkOverlapMerges();
+
     pending.length = 0;
     this.processedPairs.clear();
+  }
+
+  /** Görsel ≈ fizik dairesi — küçük tolerans yeterli. */
+  private checkOverlapMerges(): void {
+    const active: JellyBall[] = [];
+    this.ballPool.forEachActive((b) => active.push(b as JellyBall));
+
+    for (let i = 0; i < active.length; i++) {
+      const a = active[i];
+      if (!a.active || !a.body || a.harvesting || a.frozen || a.special) continue;
+
+      for (let j = i + 1; j < active.length; j++) {
+        if (!a.active || !a.body || a.harvesting || a.frozen || a.special) break;
+
+        const b = active[j];
+        if (!b.active || !b.body || b.harvesting || b.frozen || b.special) continue;
+        if (a.faction !== b.faction) continue;
+        if (a.sign !== b.sign || a.absValue !== b.absValue) continue;
+
+        const bodyA = a.body;
+        const bodyB = b.body;
+        if (!bodyA?.id || !bodyB?.id) continue;
+
+        const pairId = this.pairKey(bodyA.id, bodyB.id);
+        if (this.processedPairs.has(pairId)) continue;
+
+        const dx = bodyA.position.x - bodyB.position.x;
+        const dy = bodyA.position.y - bodyB.position.y;
+        const distSq = dx * dx + dy * dy;
+        const touch = a.radius + b.radius + 2;
+        if (distSq <= touch * touch) {
+          this.processedPairs.add(pairId);
+          const lower = bodyA.position.y >= bodyB.position.y ? a : b;
+          const upper = lower === a ? b : a;
+          this.handleMerge(lower, upper);
+        }
+      }
+    }
   }
 
   private processAnchorCollision(anchor: BallEntity, dynamic: BallEntity): void {
@@ -257,42 +303,67 @@ export class CollisionSystem {
   }
 
   private handleMerge(ballA: BallEntity, ballB: BallEntity): void {
-    const absVal = ballA.absValue;
-    const sign = ballA.sign;
+    let survivor = ballA;
+    let other = ballB;
+    const yA = this.getEntityY(ballA);
+    const yB = this.getEntityY(ballB);
+    if (yB > yA) {
+      survivor = ballB;
+      other = ballA;
+    }
 
+    const absVal = survivor.absValue;
+    const sign = survivor.sign;
     const newAbsVal = absVal * 2;
     const newValue = newAbsVal * sign;
-    const midX = (this.getEntityX(ballA) + this.getEntityX(ballB)) / 2;
-    const midY = (this.getEntityY(ballA) + this.getEntityY(ballB)) / 2;
 
-    // Remove B, evolve A
-    ballB.deactivate();
-    this.releaseBall(ballB);
+    const sx = this.getEntityX(survivor);
+    const sy = this.getEntityY(survivor);
+    const ox = this.getEntityX(other);
+    const oy = this.getEntityY(other);
+    const survivorR = survivor.radius;
+    const otherR = other.radius;
+    const oldR = survivorR;
+    const sameRow = Math.abs(sy - oy) < oldR * 0.55;
+    const mergeX = sameRow ? (sx + ox) / 2 : sx;
+    const bottomY = Math.max(sy + survivorR, oy + otherR);
 
-    ballA.setValue(newValue);
-    if (ballA.body) {
-      this.scene.matter.body.setPosition(ballA.body, { x: midX, y: midY });
+    const vx = survivor.body && other.body
+      ? (survivor.body.velocity.x + other.body.velocity.x) * 0.2
+      : 0;
+
+    other.deactivate();
+    this.releaseBall(other);
+
+    survivor.setValue(newValue);
+    const settleY = bottomY - survivor.radius;
+    const mergeY = settleY;
+
+    if (survivor.body) {
+      this.scene.matter.body.setPosition(survivor.body, { x: mergeX, y: settleY });
+      this.scene.matter.body.setVelocity(survivor.body, { x: vx, y: 2 });
+      this.scene.matter.body.setAngularVelocity(survivor.body, 0);
     }
-    if (ballA.frozen) {
-      ballA.anchorX = midX;
-      ballA.anchorY = midY;
+    if (survivor.frozen) {
+      survivor.anchorX = mergeX;
+      survivor.anchorY = settleY;
     }
-    ballA.playSquash();
+    survivor.playSquash();
 
     if (newAbsVal >= 2048) {
-      ballA.makeKing();
-      this.particles.mergeBurst(midX, midY, this.factionColor(ballA.faction));
-      this.floatingText.show(midX, midY, '👑 KING!', '#ffd700', 28, 1000);
+      survivor.makeKing();
+      this.particles.mergeBurst(mergeX, mergeY, this.factionColor(survivor.faction));
+      this.floatingText.show(mergeX, mergeY, '👑 KING!', '#ffd700', 28, 1000);
     }
 
-    this.particles.mergeBurst(midX, midY, this.factionColor(ballA.faction));
-    this.floatingText.showMerge(midX, midY - 20);
+    this.particles.mergeBurst(mergeX, mergeY, this.factionColor(survivor.faction));
+    this.floatingText.showMerge(mergeX, mergeY - 20);
 
     const points = this.scoring.addMerge(newAbsVal);
-    this.floatingText.showScore(midX, midY - 40, points);
+    this.floatingText.showScore(mergeX, mergeY - 40, points);
 
-    if (this.onFusion) this.onFusion(newValue, ballA.faction, ballA);
-    if (ballB.frozen && this.onBallDestroyed) this.onBallDestroyed(true);
+    if (this.onFusion) this.onFusion(newValue, survivor.faction, survivor);
+    if (other.frozen && this.onBallDestroyed) this.onBallDestroyed(true);
   }
 
   private handleZeroSum(ballA: BallEntity, ballB: BallEntity): void {

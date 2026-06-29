@@ -10,7 +10,7 @@ import {
 } from '../core/Constants';
 import type { JellyBall } from '../entities/JellyBall';
 import type { ParticleManager } from '../effects/ParticleManager';
-import { applyBallLabelStyle, factionTexture } from '../entities/BallEntity';
+import { applyBallLabelStyle, factionTexture, GREEN_THROWABLE_TEXTURE } from '../entities/BallEntity';
 import type { DropQueueItem } from '../systems/LevelManager';
 
 const BOTTLE_DISPLAY = 160;
@@ -133,7 +133,7 @@ export class CureLevel1UI {
     this.questTargetText = scene.add
       .text(QUEST_LABEL_X, QUEST_LABEL_Y, `+${CURE_L1_QUEST_TARGET}`, {
         fontFamily: 'system-ui, "Arial Black", sans-serif',
-        fontSize: '17px',
+        fontSize: '13px',
         fontStyle: 'bold',
         color: '#fff8c8',
         stroke: '#0d2810',
@@ -160,7 +160,7 @@ export class CureLevel1UI {
       const glow = scene.add.circle(0, 0, UPCOMING_BALL_PX * 0.52, 0x5ecc38, 0.14);
       glow.setBlendMode(Phaser.BlendModes.ADD);
 
-      const sprite = scene.add.sprite(0, 0, 'positive_ball');
+      const sprite = scene.add.sprite(0, 0, GREEN_THROWABLE_TEXTURE);
       sprite.setAlpha(0.88);
 
       const label = scene.add.text(0, 0, '', {

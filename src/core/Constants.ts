@@ -65,9 +65,9 @@ export const FIXED_TIMESTEP = 16.666; // 60 FPS in ms
 export const MATTER_DELTA = FIXED_TIMESTEP;
 
 /** Jelly ball Matter body — natural slide, soft bounce, jelly feel. */
-export const BALL_RESTITUTION = 0.14;
-export const BALL_FRICTION = 0.1;
-export const BALL_FRICTION_AIR = 0.015;
+export const BALL_RESTITUTION = 0.08;
+export const BALL_FRICTION = 0.22;
+export const BALL_FRICTION_AIR = 0.012;
 export const BALL_DENSITY = 0.001;
 
 /** Container walls — gentle cushion on landing. */
@@ -114,6 +114,6 @@ export const CURE_L1_PLAY_WIDTH = GAME_WIDTH - CURE_L1_QUEST_WIDTH;
 export const CURE_L1_PADDING = 14;
 export const CURE_L1_CONTAINER_TOP = 96;
 export const CURE_L1_LAUNCHER_Y = 44;
-export const CURE_L1_QUEST_TARGET = 8;
+export const CURE_L1_QUEST_TARGET = 256;
 export const CURE_L1_QUEST_REQUIRED = 3;
 

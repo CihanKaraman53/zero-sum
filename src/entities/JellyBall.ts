@@ -4,18 +4,20 @@ import {
   CAT_BALL, CAT_WALL, CONTAINER_BOTTOM,
   BALL_RESTITUTION, BALL_FRICTION, BALL_FRICTION_AIR, BALL_DENSITY,
 } from '../core/Constants';
-import { attachBallBody, BallEntity, BallSpecial, BallFaction, factionTexture, applyBallLabelStyle } from './BallEntity';
+import { attachBallBody, BallEntity, BallSpecial, BallFaction, factionTexture, applyBallLabelStyle, GREEN_THROWABLE_TEXTURE, mushroomScaleForRadius } from './BallEntity';
 
 export type { BallSpecial, BallFaction };
 
 const BASE_SCALE_CACHE = new Map<string, number>();
 
-function getBaseScaleForRadius(r: number, spriteSize: number): number {
+function getBaseScaleForRadius(r: number, spriteSize: number, texKey: string): number {
   const size = Math.max(spriteSize, 1);
-  const key = `${r}_${size}`;
+  const key = `${r}_${size}_${texKey}`;
   let cached = BASE_SCALE_CACHE.get(key);
   if (cached === undefined) {
-    cached = (r * 3.2) / size;
+    cached = texKey === GREEN_THROWABLE_TEXTURE
+      ? mushroomScaleForRadius(r)
+      : (r * 3.2) / size;
     BASE_SCALE_CACHE.set(key, cached);
   }
   return cached;
@@ -88,7 +90,7 @@ export class JellyBall implements BallEntity {
     this.gfx = this.scene.add.graphics();
     this.container.add(this.gfx);
 
-    this.sprite = this.scene.add.sprite(0, 0, 'positive_ball');
+    this.sprite = this.scene.add.sprite(0, 0, GREEN_THROWABLE_TEXTURE);
     this.container.add(this.sprite);
 
     this.label = this.scene.add.text(0, 0, '', {
@@ -147,8 +149,12 @@ export class JellyBall implements BallEntity {
 
     attachBallBody(this.body, this);
 
-    this.cachedBaseScale = getBaseScaleForRadius(this.radius, Math.min(this.sprite.width, this.sprite.height));
     this.applyVisuals(true);
+    this.cachedBaseScale = getBaseScaleForRadius(
+      this.radius,
+      Math.min(this.sprite.width, this.sprite.height),
+      this.getTextureKey(),
+    );
 
     this.container.setPosition(x, y);
     this.container.setVisible(true);
@@ -231,7 +237,6 @@ export class JellyBall implements BallEntity {
     this.sign = newValue >= 0 ? 1 : -1;
     this.absValue = Math.abs(newValue);
     this.radius = getBallRadius(this.absValue);
-    this.cachedBaseScale = getBaseScaleForRadius(this.radius, Math.min(this.sprite.width, this.sprite.height));
 
     if (this.body) {
       const scale = this.radius / (this.body.circleRadius || this.radius);
@@ -239,6 +244,11 @@ export class JellyBall implements BallEntity {
     }
 
     this.applyVisuals(true);
+    this.cachedBaseScale = getBaseScaleForRadius(
+      this.radius,
+      Math.min(this.sprite.width, this.sprite.height),
+      this.getTextureKey(),
+    );
     this.playSquash();
   }
 
@@ -324,7 +334,9 @@ export class JellyBall implements BallEntity {
     if (this.special === 'multiply' || this.special === 'divide') {
       return r > 20 ? '20px' : '16px';
     }
-    const px = this.absValue >= 10 ? Math.max(13, r * 0.7) : Math.max(15, r * 0.82);
+    const px = this.absValue >= 100 ? Math.max(11, r * 0.42)
+      : this.absValue >= 10 ? Math.max(13, r * 0.7)
+      : Math.max(15, r * 0.82);
     return `${Math.round(px)}px`;
   }
 
@@ -338,7 +350,7 @@ export class JellyBall implements BallEntity {
       } else {
         this.sprite.clearTint();
       }
-      this.cachedBaseScale = getBaseScaleForRadius(this.radius, Math.min(this.sprite.width, this.sprite.height));
+      this.cachedBaseScale = getBaseScaleForRadius(this.radius, Math.min(this.sprite.width, this.sprite.height), texKey);
     }
 
     const labelText = this.getLabelText();
