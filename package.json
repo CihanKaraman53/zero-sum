@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build"
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 4173 --host",
+    "optimize-assets": "node scripts/optimize-assets.mjs"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +16,7 @@
     "phaser": "^4.2.0"
   },
   "devDependencies": {
+    "sharp": "^0.35.2",
     "typescript": "^6.0.3",
     "vite": "^8.1.0"
   }

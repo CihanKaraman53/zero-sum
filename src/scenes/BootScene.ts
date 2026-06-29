@@ -42,20 +42,20 @@ export class BootScene extends Phaser.Scene {
       color: '#00ff88',
     }).setOrigin(0.5);
 
-    this.load.image('positive_ball', 'assets/nature_orb.png');
-    this.load.image('negative_ball', 'assets/fire_orb.png');
-    this.load.image('x2_ball', 'assets/x2_ball.png');
-    this.load.image('blast_ball', 'assets/blast_ball.png');
-    this.load.image('slice_ball', 'assets/slice_ball.png');
-    this.load.image('dice_ball', 'assets/dice_ball.png');
-    this.load.image('magnet_ball', 'assets/magnet_ball.png');
-    this.load.image('ghost_ball', 'assets/ghost_ball.png');
-    this.load.image('launcher', 'assets/launcher.png');
-    this.load.image('bottle_01', 'assets/bottle_01.png');
-    this.load.image('bluecap_mushroom', 'assets/bluecap_mushroom.png');
-    this.load.image('greater_stamina_potion', 'assets/greater_stamina_potion.png');
-    this.load.image('potion_plus8', 'assets/potion_plus8.png');
-    this.load.image('mage_gloves', 'assets/mage_gloves.png');
+    this.load.image('positive_ball', 'assets/nature_orb.webp');
+    this.load.image('negative_ball', 'assets/fire_orb.webp');
+    this.load.image('x2_ball', 'assets/x2_ball.webp');
+    this.load.image('blast_ball', 'assets/blast_ball.webp');
+    this.load.image('slice_ball', 'assets/slice_ball.webp');
+    this.load.image('dice_ball', 'assets/dice_ball.webp');
+    this.load.image('magnet_ball', 'assets/magnet_ball.webp');
+    this.load.image('ghost_ball', 'assets/ghost_ball.webp');
+    this.load.image('launcher', 'assets/launcher.webp');
+    this.load.image('bottle_01', 'assets/bottle_01.webp');
+    this.load.image('bluecap_mushroom', 'assets/bluecap_mushroom.webp');
+    this.load.image('greater_stamina_potion', 'assets/greater_stamina_potion.webp');
+    this.load.image('potion_plus8', 'assets/potion_plus8.webp');
+    this.load.image('mage_gloves', 'assets/mage_gloves.webp');
   }
 
   private applyTextureFilters(): void {
