@@ -6,7 +6,8 @@ import { ParticleManager } from '../effects/ParticleManager';
 import { FloatingText } from '../effects/FloatingText';
 import { ScoringSystem } from './ScoringSystem';
 import { ComboSystem } from './ComboSystem';
-import { POSITIVE_COLOR, NEGATIVE_COLOR, CAT_BALL, getBallRadius, CONTAINER_TOP, CONTAINER_LEFT, CONTAINER_RIGHT, CONTAINER_BOTTOM } from '../core/Constants';
+import { POSITIVE_COLOR, NEGATIVE_COLOR, FACTION_COLORS, CAT_BALL, getBallRadius, CONTAINER_TOP, CONTAINER_LEFT, CONTAINER_RIGHT, CONTAINER_BOTTOM } from '../core/Constants';
+import { BallFaction } from '../entities/BallEntity';
 
 export interface CollisionResult {
   type: 'merge' | 'zerosum' | 'shrink' | 'special' | 'none';
@@ -40,7 +41,7 @@ export class CollisionSystem {
   private readonly onCollisionStart = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
   private readonly onAfterUpdate = () => this.flushPendingCollisions();
   // Fusion callback for level manager
-  onFusion: ((value: number) => void) | null = null;
+  onFusion: ((value: number, faction: BallFaction, source: BallEntity) => void) | null = null;
   onBallDestroyed: ((wasFrozen: boolean) => void) | null = null;
   onZeroSum: ((absValue: number) => void) | null = null;
   onSplit: (() => void) | null = null;
@@ -133,6 +134,13 @@ export class CollisionSystem {
       const ballB = this.getBall(pair.bodyB);
       if (!ballA || !ballB || !ballA.active || !ballB.active) continue;
 
+      // Green ↔ red: normal physics bounce, but NO merge / zero-sum / shrink.
+      if (ballA.faction !== ballB.faction) {
+        ballA.playSquash();
+        ballB.playSquash();
+        continue;
+      }
+
       const pairId = this.pairKey(pair.bodyA.id, pair.bodyB.id);
       if (this.processedPairs.has(pairId)) continue;
       this.processedPairs.add(pairId);
@@ -223,6 +231,10 @@ export class CollisionSystem {
     }
   }
 
+  private factionColor(faction: BallFaction): number {
+    return FACTION_COLORS[faction];
+  }
+
   private handleKingDestroy(king: BallEntity, victim: BallEntity): void {
     const midX = victim.body!.position.x;
     const midY = victim.body!.position.y;
@@ -235,7 +247,7 @@ export class CollisionSystem {
     // King squashes but takes no damage
     king.playSquash();
 
-    const color = victim.sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
+    const color = this.factionColor(victim.faction);
     this.particles.shrinkPoof(midX, midY, color);
 
     const points = this.scoring.addShrink(victimVal);
@@ -269,19 +281,17 @@ export class CollisionSystem {
 
     if (newAbsVal >= 2048) {
       ballA.makeKing();
-      const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-      this.particles.mergeBurst(midX, midY, color);
+      this.particles.mergeBurst(midX, midY, this.factionColor(ballA.faction));
       this.floatingText.show(midX, midY, '👑 KING!', '#ffd700', 28, 1000);
     }
 
-    const color = sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
-    this.particles.mergeBurst(midX, midY, color);
+    this.particles.mergeBurst(midX, midY, this.factionColor(ballA.faction));
     this.floatingText.showMerge(midX, midY - 20);
 
     const points = this.scoring.addMerge(newAbsVal);
     this.floatingText.showScore(midX, midY - 40, points);
 
-    if (this.onFusion) this.onFusion(newValue);
+    if (this.onFusion) this.onFusion(newValue, ballA.faction, ballA);
     if (ballB.frozen && this.onBallDestroyed) this.onBallDestroyed(true);
   }
 
@@ -342,6 +352,7 @@ export class CollisionSystem {
     const spawnY = bigger.frozen ? bigger.anchorY : midY;
     const aFrozen = ballA.frozen;
     const bFrozen = ballB.frozen;
+    const spawnFaction = bigger.faction;
 
     // Destroy both balls (Splitting mechanic)
     smaller.deactivate();
@@ -385,13 +396,13 @@ export class CollisionSystem {
       if (pinSpawns) {
         const pinned = this.ballPool.acquire();
         if (!pinned) continue;
-        pinned.activate(pos.x, pos.y, absVal * bigSign, null, true, true);
+        pinned.activate(pos.x, pos.y, absVal * bigSign, null, true, true, spawnFaction);
         if (absVal >= 2048) pinned.makeKing();
         placedSpawns.push({ x: pos.x, y: pos.y, radius: pinned.radius });
       } else {
         const newBall = this.ballPool.acquire();
         if (!newBall) continue;
-        newBall.activate(pos.x, pos.y, absVal * bigSign);
+        newBall.activate(pos.x, pos.y, absVal * bigSign, null, false, false, spawnFaction);
         if (absVal >= 2048) newBall.makeKing();
         if (newBall.body) {
           const vx = (Math.random() - 0.5) * 4;
@@ -404,13 +415,13 @@ export class CollisionSystem {
     }
 
     if (spawnCount > 0) {
-      const bigColor = bigSign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
+      const bigColor = this.factionColor(spawnFaction);
       this.particles.burst(midX, midY, bigColor, Math.min(spawnCount * 4, 12), 2, 320);
     } else {
       this.particles.zeroSumExplosion(midX, midY, POSITIVE_COLOR, NEGATIVE_COLOR);
     }
 
-    const color = smaller.sign > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
+    const color = this.factionColor(smaller.faction);
     this.particles.shrinkPoof(midX, midY, color);
 
     const points = this.scoring.addShrink(smallAbsVal);
@@ -604,7 +615,7 @@ export class CollisionSystem {
       this.particles.burst(x, y, 0x00ccff, 20, 3.5, 450);
       this.floatingText.show(x, y - 30, '×2 MULTIPLIER!', '#00f0ff', 24, 800);
 
-      if (this.onFusion) this.onFusion(newValue);
+      if (this.onFusion) this.onFusion(newValue, target.faction, target);
     } else if (special.special === 'divide') {
       // ÷2: split target into two smaller balls
       const halfAbsVal = target.absValue / 2;
@@ -615,7 +626,7 @@ export class CollisionSystem {
         // Spawn second ball from pool
         const newBall = this.ballPool.acquire();
         if (newBall) {
-          newBall.activate(x + 20, y - 10, halfValue);
+          newBall.activate(x + 20, y - 10, halfValue, null, false, false, target.faction);
           // Push apart
           if (newBall.body) {
             this.scene.matter.body.setVelocity(newBall.body, { x: 1.5, y: -1 });
@@ -666,7 +677,7 @@ export class CollisionSystem {
         const by = ball.body.position.y;
         const dist = Phaser.Math.Distance.Between(hitX, hitY, bx, by);
         if (dist <= explosionRadius) {
-          const color = ball.sign > 0 ? 0x00ff88 : 0xff3388;
+          const color = FACTION_COLORS[ball.faction];
           this.particles.burst(bx, by, color, 12, 2.0, 350);
           ball.deactivate();
           this.ballPool.release(ball);
@@ -704,7 +715,7 @@ export class CollisionSystem {
         if (childBall) {
           // Offset them by their radius + 5 pixels to guarantee they do not overlap and merge back
           const offsetX = (i === 0 ? -1 : 1) * (childRadius + 5);
-          childBall.activate(hitX + offsetX, hitY, childValue);
+          childBall.activate(hitX + offsetX, hitY, childValue, null, false, false, target.faction);
 
           if (childBall.body) {
             const vx = (i === 0 ? -1 : 1) * (2.0 + Math.random() * 1.0);

@@ -75,9 +75,17 @@ export const WALL_RESTITUTION = 0.14;
 export const WALL_FRICTION = 0.1;
 
 // ── Collision categories (bit flags) ──
+export type BallFaction = 'green' | 'red';
+
+/** All jelly balls share one physics layer — green/red bounce off each other normally. */
 export const CAT_BALL = 0x0001;
 export const CAT_WALL = 0x0002;
 export const CAT_SENSOR = 0x0004;
+
+export const FACTION_COLORS: Record<BallFaction, number> = {
+  green: POSITIVE_COLOR,
+  red: NEGATIVE_COLOR,
+};
 
 // ── Pool sizes ──
 export const BALL_POOL_SIZE = 50;
@@ -101,11 +109,11 @@ export const TEMP_VEC = { x: 0, y: 0 };
 export const TEMP_VEC2 = { x: 0, y: 0 };
 
 // ── Level 1 “Zero Cure” visual shell (layout only — gameplay unchanged) ──
-export const CURE_L1_QUEST_WIDTH = 118;
+export const CURE_L1_QUEST_WIDTH = 132;
 export const CURE_L1_PLAY_WIDTH = GAME_WIDTH - CURE_L1_QUEST_WIDTH;
 export const CURE_L1_PADDING = 14;
-export const CURE_L1_CONTAINER_TOP = 148;
-export const CURE_L1_LAUNCHER_Y = 118;
-export const CURE_L1_QUEST_TARGET = 64;
+export const CURE_L1_CONTAINER_TOP = 96;
+export const CURE_L1_LAUNCHER_Y = 44;
+export const CURE_L1_QUEST_TARGET = 8;
 export const CURE_L1_QUEST_REQUIRED = 3;
 

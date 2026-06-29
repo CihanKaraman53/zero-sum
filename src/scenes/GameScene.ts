@@ -15,14 +15,14 @@ import { BlackHoleSystem } from '../systems/BlackHoleSystem';
 import { LevelManager } from '../systems/LevelManager';
 
 import { HUD } from '../ui/HUD';
-import { NextQueue } from '../ui/NextQueue';
 import { CureLevel1UI } from '../ui/CureLevel1UI';
 
 import {
   FIXED_TIMESTEP,
-  GAME_WIDTH, GAME_HEIGHT, GRAVITY_Y,
+  GAME_WIDTH, GAME_HEIGHT,
   CAT_WALL, CAT_BALL, WALL_RESTITUTION, WALL_FRICTION,
   CURE_L1_PADDING, CURE_L1_PLAY_WIDTH, CURE_L1_CONTAINER_TOP,
+  CURE_L1_QUEST_REQUIRED, CURE_L1_QUEST_TARGET,
 } from '../core/Constants';
 import { gamePools } from '../core/GamePools';
 import { devWarn } from '../core/Production';
@@ -42,20 +42,16 @@ export class GameScene extends Phaser.Scene {
   private levelManager!: LevelManager;
 
   private hud!: HUD;
-  private nextQueue!: NextQueue;
   private cureUI!: CureLevel1UI;
 
   private isGameOver = false;
   private isVictoryPending = false;
   private fixedAccumulator = 0;
+  private plusEightCount = 0;
 
   private readonly spawnQueue: { x: number; y: number }[] = [];
   private lastPointerX = GAME_WIDTH / 2;
   private hasPointerX = false;
-
-  private tutorialStep = 1;
-  private tutorialText?: Phaser.GameObjects.Text;
-  private tutorialArrow?: Phaser.GameObjects.Graphics;
 
   public containerLeft = CURE_L1_PADDING;
   public containerRight = CURE_L1_PLAY_WIDTH - CURE_L1_PADDING;
@@ -84,7 +80,7 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = false;
     this.isVictoryPending = false;
     this.fixedAccumulator = 0;
-    this.tutorialStep = 1;
+    this.plusEightCount = 0;
 
     this.input.off('pointerdown', this.onPointerDown);
     this.input.off('pointermove', this.onPointerMove);
@@ -116,6 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.launcher.setPreview(
       this.levelManager.getQueue()[0].value,
       this.levelManager.getQueue()[0].special,
+      this.levelManager.getQueue()[0].faction,
     );
     this.launcher.updateBounds(this.containerLeft + 24, this.containerRight - 24);
 
@@ -124,44 +121,41 @@ export class GameScene extends Phaser.Scene {
     );
     this.blackHoleSys = new BlackHoleSystem(this, this.ballPool, this.particles, this.scoring);
 
-    this.collisionSys.onFusion = (value: number) => {
-      if (value === 4 && this.tutorialStep === 2) {
-        this.cureUI.setProgress(1);
-        this.tutorialArrow?.destroy();
-        this.tutorialArrow = undefined;
-        this.tutorialStep = 3;
-      } else if (value === 8 && this.tutorialStep === 3) {
-        this.cureUI.setProgress(2);
-        this.tutorialStep = 4;
-      }
-    };
-
-    this.collisionSys.onZeroSum = () => {
-      if (this.tutorialStep === 4 && !this.isVictoryPending) {
-        this.cureUI.setProgress(3);
-        this.tutorialText?.destroy();
-        this.tutorialText = undefined;
-        this.isVictoryPending = true;
-        this.time.delayedCall(1000, () => this.handleVictory());
+    this.collisionSys.onFusion = (value: number, faction: 'green' | 'red', source) => {
+      if (
+        value === CURE_L1_QUEST_TARGET &&
+        faction === 'green' &&
+        !this.isVictoryPending &&
+        source instanceof JellyBall &&
+        source.active
+      ) {
+        this.cureUI.harvestFromBall(source, () => {
+          this.ballPool.release(source);
+          this.plusEightCount = this.cureUI.getCollected();
+          if (this.plusEightCount >= CURE_L1_QUEST_REQUIRED) {
+            this.isVictoryPending = true;
+            this.time.delayedCall(1200, () => this.handleVictory());
+          }
+        });
       }
     };
 
     this.setupWalls();
 
     this.background.setCureMinimal(true);
-    this.background.updateContainerBounds(this.containerLeft, this.containerRight, this.containerBottom);
 
     this.hud = new HUD(this, this.scoring, this.levelManager);
-    this.nextQueue = new NextQueue(this, this.levelManager);
-    this.cureUI = new CureLevel1UI(this);
+    this.cureUI = new CureLevel1UI(this, this.particles);
 
+    this.launcher.container.setDepth(30);
     this.launcher.setCureMinimal(true);
+
+    this.syncDropPreviews();
 
     this.input.on('pointerdown', this.onPointerDown);
     this.input.on('pointermove', this.onPointerMove);
 
     this.hud.update();
-    this.nextQueue.update();
   }
 
   update(time: number, delta: number) {
@@ -188,56 +182,6 @@ export class GameScene extends Phaser.Scene {
     this.ballPool.forEachActive((ball) => {
       if (ball.active && !ball.frozen) ball.syncPosition();
     });
-
-    this.updateTutorialHints();
-  }
-
-  private updateTutorialHints(): void {
-    if (this.tutorialStep === 2 && this.tutorialArrow) {
-      let ball2: JellyBall | undefined;
-      this.ballPool.forEachActive((b) => {
-        if (!ball2 && b.value === 2) ball2 = b;
-      });
-      if (ball2?.body) {
-        this.tutorialArrow.setPosition(ball2.body.position.x, ball2.body.position.y - 50);
-        this.tutorialArrow.setVisible(true);
-      } else {
-        this.tutorialArrow.setVisible(false);
-      }
-    } else if (this.tutorialStep === 4) {
-      let ball8: JellyBall | undefined;
-      this.ballPool.forEachActive((b) => {
-        if (!ball8 && b.value === 8) ball8 = b;
-      });
-      if (ball8?.body) {
-        if (!this.tutorialText) {
-          this.tutorialText = this.add.text(
-            ball8.body.position.x, ball8.body.position.y - 70,
-            'Zıt sayıları çarpıştır!', {
-              fontFamily: '"Orbitron", monospace',
-              fontSize: '18px',
-              color: '#ff3388',
-              fontStyle: 'bold',
-              stroke: '#000000',
-              strokeThickness: 3,
-            },
-          ).setOrigin(0.5).setDepth(40);
-          this.tweens.add({
-            targets: this.tutorialText,
-            scaleX: 1.1,
-            scaleY: 1.1,
-            duration: 500,
-            yoyo: true,
-            repeat: -1,
-          });
-        } else {
-          this.tutorialText.setPosition(ball8.body.position.x, ball8.body.position.y - 70);
-        }
-      } else if (this.tutorialText) {
-        this.tutorialText.destroy();
-        this.tutorialText = undefined;
-      }
-    }
   }
 
   private processSpawnQueue(time: number): void {
@@ -270,35 +214,30 @@ export class GameScene extends Phaser.Scene {
       const dropItem = this.levelManager.consumeNextDrop();
       const dropX = spawnX ?? this.launcher.getX();
       const dropY = this.launcher.getDropY();
+      const spawnRadius = 18;
+      const clampedX = Phaser.Math.Clamp(
+        dropX,
+        this.containerLeft + spawnRadius + 2,
+        this.containerRight - spawnRadius - 2,
+      );
 
       const ball = this.ballPool.acquire();
       if (ball) {
-        ball.activate(dropX, dropY, dropItem.value, dropItem.special);
-      }
-
-      if (this.tutorialStep === 1) {
-        this.tutorialStep = 2;
-        this.tutorialArrow = this.add.graphics().setDepth(40);
-        this.tutorialArrow.lineStyle(3, 0x00ff88, 1);
-        this.tutorialArrow.fillStyle(0x00ff88, 1);
-        this.tutorialArrow.beginPath();
-        this.tutorialArrow.moveTo(-10, -20);
-        this.tutorialArrow.lineTo(10, -20);
-        this.tutorialArrow.lineTo(10, 0);
-        this.tutorialArrow.lineTo(20, 0);
-        this.tutorialArrow.lineTo(0, 20);
-        this.tutorialArrow.lineTo(-20, 0);
-        this.tutorialArrow.lineTo(-10, 0);
-        this.tutorialArrow.closePath();
-        this.tutorialArrow.fillPath();
-        this.tutorialArrow.strokePath();
-        this.tutorialArrow.setVisible(false);
+        ball.activate(
+          clampedX, dropY,
+          dropItem.value, dropItem.special, false, false,
+          dropItem.faction,
+        );
       }
 
       const nextInQueue = this.levelManager.getQueue()[0];
-      this.launcher.setPreview(nextInQueue.value, nextInQueue.special);
-      this.nextQueue.update();
+      this.launcher.setPreview(nextInQueue.value, nextInQueue.special, nextInQueue.faction);
+      this.syncDropPreviews();
     }
+  }
+
+  private syncDropPreviews(): void {
+    this.cureUI.updateUpcomingQueue(this.levelManager.getQueue());
   }
 
   private setupWalls(): void {

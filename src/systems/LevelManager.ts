@@ -1,9 +1,10 @@
 import { LevelConfig, LEVEL } from '../data/levels';
 import { ScoringSystem } from './ScoringSystem';
-import { BallSpecial } from '../entities/JellyBall';
+import { BallSpecial, BallFaction } from '../entities/JellyBall';
 
 export interface DropQueueItem {
   value: number;
+  faction: BallFaction;
   special: BallSpecial;
 }
 
@@ -18,8 +19,11 @@ export class LevelManager {
   dropQueue: DropQueueItem[] = [];
 
   private tutorialIndex = 0;
-  private readonly tutorialQueue = [2, 2, 4, -8];
+  /** Level 1 — green only; mostly +, rare −. */
+  private readonly tutorialQueue: DropQueueItem[] = [];
   private readonly queueSize = 3;
+  /** ~15% of drops are negative (same green orb). */
+  private readonly negativeSpawnChance = 0.15;
 
   constructor(scoring: ScoringSystem) {
     this.scoring = scoring;
@@ -47,10 +51,13 @@ export class LevelManager {
   private refillQueue(): void {
     while (this.dropQueue.length < this.queueSize) {
       if (this.tutorialIndex < this.tutorialQueue.length) {
-        const val = this.tutorialQueue[this.tutorialIndex++];
-        this.dropQueue.push({ value: val, special: null });
+        this.dropQueue.push(this.tutorialQueue[this.tutorialIndex++]);
       } else {
-        this.dropQueue.push({ value: 2, special: null });
+        const pool = this.currentLevel.spawnPool;
+        const absVal = pool[Math.floor(Math.random() * pool.length)];
+        const negative = Math.random() < this.negativeSpawnChance;
+        const value = negative ? -absVal : absVal;
+        this.dropQueue.push({ value, faction: 'green', special: null });
       }
     }
   }

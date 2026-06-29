@@ -1,9 +1,19 @@
 import Phaser from 'phaser';
 import {
   LAUNCHER_Y, LAUNCHER_MIN_X, LAUNCHER_MAX_X, CONTAINER_CENTER_X,
-  DROP_COOLDOWN, CONTAINER_BORDER_COLOR, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP,
-  CURE_L1_LAUNCHER_Y,
+  DROP_COOLDOWN, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP,
+  CURE_L1_LAUNCHER_Y, GAME_HEIGHT,
 } from '../core/Constants';
+import { factionTexture, BallFaction, applyBallLabelStyle } from './BallEntity';
+
+/** Cure mode — mage gloves hold the preview orb between the palms. */
+const CURE_GLOVE_SIZE = 68;
+const CURE_BALL_PX = 38;
+const CURE_BALL_HOLD_Y = 11;
+const CURE_GLOVE_Y = 0;
+/** Anchor near fingertips so wrists sit above, hands reach down into the arena. */
+const CURE_GLOVE_ORIGIN_Y = 0.14;
+const NORMAL_BALL_PX = 68;
 
 /**
  * Launcher — the mechanical dropper at the top of the container.
@@ -14,6 +24,7 @@ export class Launcher {
   scene: Phaser.Scene;
   container: Phaser.GameObjects.Container;
   bodyGfx: Phaser.GameObjects.Graphics;
+  glovesImg: Phaser.GameObjects.Image;
   aimLine: Phaser.GameObjects.Graphics;
   ballPreview: Phaser.GameObjects.Sprite;
   ballLabel: Phaser.GameObjects.Text;
@@ -29,11 +40,15 @@ export class Launcher {
   maxX: number = LAUNCHER_MAX_X;
   private previewValue: number = 2;
   private previewSpecial: string | null = null;
+  private previewFaction: BallFaction = 'green';
   private invertedMode = false;
   private invertedContainerBottom = CONTAINER_BOTTOM;
   private aimThrottle = false;
   private aimFrame = 0;
   private cureMinimal = false;
+  private ballHoldY = 0;
+  private idleHoldTween: Phaser.Tweens.Tween | null = null;
+  private idleBobTween: Phaser.Tweens.Tween | null = null;
 
   setAimThrottle(on: boolean): void {
     this.aimThrottle = on;
@@ -43,16 +58,141 @@ export class Launcher {
     this.cureMinimal = on;
     if (on) {
       this.container.setY(CURE_L1_LAUNCHER_Y);
-      this.ballPreview.setVisible(false);
-      this.ballLabel.setVisible(false);
       this.bodyGfx.setVisible(false);
+      this.glovesImg.setVisible(true);
+      this.ballPreview.setVisible(true);
+      this.ballLabel.setVisible(true);
+      this.applyCureGloveLayout();
+      this.drawPreview();
+      this.startHoldIdle();
     } else {
+      this.stopHoldIdle();
       this.container.setY(this.invertedMode ? this.invertedContainerBottom + 52 : LAUNCHER_Y);
+      this.glovesImg.setVisible(false);
+      this.ballPreview.setPosition(0, 0);
+      this.ballLabel.setPosition(0, 0);
       this.ballPreview.setVisible(true);
       this.ballLabel.setVisible(true);
       this.bodyGfx.setVisible(true);
       this.drawBody();
     }
+  }
+
+  private gloveBaseScale(): number {
+    return CURE_GLOVE_SIZE / this.glovesImg.frame.width;
+  }
+
+  private applyGloveScale(): void {
+    this.glovesImg.setScale(this.gloveBaseScale());
+  }
+
+  private applyCureGloveLayout(): void {
+    this.ballHoldY = CURE_BALL_HOLD_Y;
+    this.glovesImg.setTexture('mage_gloves_clean');
+    this.glovesImg.setOrigin(0.5, CURE_GLOVE_ORIGIN_Y);
+    this.glovesImg.setAngle(180);
+    this.glovesImg.setPosition(0, CURE_GLOVE_Y);
+    this.applyGloveScale();
+
+    this.ballPreview.setPosition(0, this.ballHoldY);
+    this.ballLabel.setPosition(0, this.ballHoldY);
+
+    this.container.sendToBack(this.aimLine);
+    this.container.bringToTop(this.glovesImg);
+  }
+
+  private previewPixelSize(): number {
+    return this.cureMinimal ? CURE_BALL_PX : NORMAL_BALL_PX;
+  }
+
+  private previewBaseScale(): number {
+    return this.previewPixelSize() / this.ballPreview.frame.width;
+  }
+
+  /** Scale from texture pixels — setDisplaySize alone leaves native 512px in Phaser 4. */
+  private applyPreviewScale(): void {
+    const s = this.previewBaseScale();
+    this.ballPreview.setScale(s);
+  }
+
+  private startHoldIdle(): void {
+    this.stopHoldIdle();
+    this.idleHoldTween = this.scene.tweens.add({
+      targets: this.ballPreview,
+      y: this.ballHoldY - 2,
+      duration: 820,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+    this.scene.tweens.add({
+      targets: this.ballLabel,
+      y: this.ballHoldY - 2,
+      duration: 820,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+    this.idleBobTween = this.scene.tweens.add({
+      targets: this.glovesImg,
+      y: CURE_GLOVE_Y + 1,
+      duration: 980,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  private stopHoldIdle(): void {
+    this.idleHoldTween?.stop();
+    this.idleHoldTween = null;
+    this.idleBobTween?.stop();
+    this.idleBobTween = null;
+    this.scene.tweens.killTweensOf(this.ballPreview);
+    this.scene.tweens.killTweensOf(this.ballLabel);
+    this.scene.tweens.killTweensOf(this.glovesImg);
+  }
+
+  private playThrowAnimation(): void {
+    if (!this.cureMinimal) return;
+
+    this.stopHoldIdle();
+    this.applyGloveScale();
+    this.applyPreviewScale();
+    this.glovesImg.setPosition(0, CURE_GLOVE_Y);
+    this.ballPreview.setPosition(0, this.ballHoldY);
+    this.ballLabel.setPosition(0, this.ballHoldY);
+
+    // Sadece aşağı itme — scale dokunma (scale tween eldivenleri dev yapıyordu)
+    this.scene.tweens.add({
+      targets: this.glovesImg,
+      y: CURE_GLOVE_Y + 5,
+      duration: 65,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => this.startHoldIdle(),
+    });
+
+    this.scene.tweens.add({
+      targets: this.ballPreview,
+      y: this.ballHoldY + 8,
+      duration: 65,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.applyPreviewScale();
+        this.ballPreview.setPosition(0, this.ballHoldY);
+      },
+    });
+
+    this.scene.tweens.add({
+      targets: this.ballLabel,
+      y: this.ballHoldY + 8,
+      duration: 65,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => this.ballLabel.setPosition(0, this.ballHoldY),
+    });
   }
 
   updateBounds(minX: number, maxX: number): void {
@@ -75,18 +215,21 @@ export class Launcher {
     this.bodyGfx = scene.add.graphics();
     this.container.add(this.bodyGfx);
 
-    // Ball preview (mini ball inside launcher)
+    this.glovesImg = scene.add.image(0, CURE_GLOVE_Y, 'mage_gloves_clean');
+    this.glovesImg.setOrigin(0.5, CURE_GLOVE_ORIGIN_Y);
+    this.glovesImg.setVisible(false);
+    this.container.add(this.glovesImg);
+
+    // Ball preview (held between mage gloves in cure mode)
     this.ballPreview = scene.add.sprite(0, 0, 'positive_ball');
     this.container.add(this.ballPreview);
 
     this.ballLabel = scene.add.text(0, 0, '', {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '18px', // Slightly larger font since launcher is bigger
+      fontFamily: 'system-ui, "Arial Black", sans-serif',
+      fontSize: '20px',
       fontStyle: 'bold',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 2,
     }).setOrigin(0.5);
+    applyBallLabelStyle(this.ballLabel, 'green');
     this.container.add(this.ballLabel);
 
     this.drawBody();
@@ -159,12 +302,11 @@ export class Launcher {
   /**
    * Set the preview ball info.
    */
-  setPreview(value: number, special: string | null): void {
+  setPreview(value: number, special: string | null, faction: BallFaction = 'green'): void {
     this.previewValue = value;
     this.previewSpecial = special;
-    if (!this.cureMinimal) {
-      this.drawPreview();
-    }
+    this.previewFaction = faction;
+    this.drawPreview();
   }
 
   /**
@@ -209,13 +351,17 @@ export class Launcher {
     this.lastDropTime = time;
 
     const baseY = this.container.y;
-    this.scene.tweens.add({
-      targets: this.container,
-      y: this.invertedMode ? baseY - 8 : baseY + 8,
-      duration: 60,
-      yoyo: true,
-      ease: 'Sine.easeOut',
-    });
+    if (this.cureMinimal) {
+      this.playThrowAnimation();
+    } else {
+      this.scene.tweens.add({
+        targets: this.container,
+        y: this.invertedMode ? baseY - 8 : baseY + 8,
+        duration: 60,
+        yoyo: true,
+        ease: 'Sine.easeOut',
+      });
+    }
 
     return true;
   }
@@ -242,10 +388,13 @@ export class Launcher {
   }
 
   getDropY(): number {
+    if (this.cureMinimal) {
+      return this.container.y + this.ballHoldY + 18;
+    }
     if (this.invertedMode) {
       return this.invertedContainerBottom - 28;
     }
-    return LAUNCHER_Y + 20;
+    return this.container.y + 36;
   }
 
 
@@ -266,17 +415,20 @@ export class Launcher {
     } else if (this.previewSpecial) {
       this.ballPreview.setTexture('positive_ball');
       this.ballPreview.setTint(0x00ccff);
-    } else if (this.previewValue > 0) {
-      this.ballPreview.setTexture('positive_ball');
-      this.ballPreview.clearTint();
     } else {
-      this.ballPreview.setTexture('negative_ball');
+      this.ballPreview.setTexture(factionTexture(this.previewFaction));
       this.ballPreview.clearTint();
     }
 
-    // All preview balls appear uniform in size inside the launcher housing
-    const radius = 34;
-    this.ballPreview.setDisplaySize(radius * 2, radius * 2);
+    this.applyPreviewScale();
+
+    if (this.cureMinimal) {
+      this.ballPreview.setPosition(0, this.ballHoldY);
+      this.ballLabel.setPosition(0, this.ballHoldY);
+      this.ballLabel.setFontSize('14px');
+    } else {
+      this.ballLabel.setFontSize('20px');
+    }
 
     if (this.previewSpecial === 'multiply') {
       this.ballLabel.setText('×2');
@@ -288,6 +440,7 @@ export class Launcher {
       const prefix = this.previewValue > 0 ? '+' : '';
       this.ballLabel.setText(`${prefix}${this.previewValue}`);
     }
+    applyBallLabelStyle(this.ballLabel, this.previewFaction);
   }
 
   private drawAimLine(time: number): void {
@@ -303,8 +456,8 @@ export class Launcher {
       this.aimLine.lineTo(0, endY);
       this.aimLine.strokePath();
     } else {
-      const startY = 32;
-      const endY = this.cureMinimal ? 680 : 800;
+      const startY = this.cureMinimal ? this.ballHoldY + 18 : 32;
+      const endY = GAME_HEIGHT - this.container.y - 36;
       this.aimLine.beginPath();
       this.aimLine.moveTo(0, startY);
       this.aimLine.lineTo(0, endY);

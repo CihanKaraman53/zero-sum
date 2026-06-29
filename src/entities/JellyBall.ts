@@ -4,9 +4,9 @@ import {
   CAT_BALL, CAT_WALL, CONTAINER_BOTTOM,
   BALL_RESTITUTION, BALL_FRICTION, BALL_FRICTION_AIR, BALL_DENSITY,
 } from '../core/Constants';
-import { attachBallBody, BallEntity, BallSpecial } from './BallEntity';
+import { attachBallBody, BallEntity, BallSpecial, BallFaction, factionTexture, applyBallLabelStyle } from './BallEntity';
 
-export type { BallSpecial };
+export type { BallSpecial, BallFaction };
 
 const BASE_SCALE_CACHE = new Map<string, number>();
 
@@ -38,10 +38,12 @@ export class JellyBall implements BallEntity {
   value: number = 2;
   sign: number = 1;
   absValue: number = 2;
+  faction: BallFaction = 'green';
   isKing: boolean = false;
   special: BallSpecial = null;
   active: boolean = false;
   frozen: boolean = false;
+  harvesting: boolean = false;
   radius: number = 18;
   anchorX: number = 0;
   anchorY: number = 0;
@@ -81,7 +83,7 @@ export class JellyBall implements BallEntity {
 
     this.container = this.scene.add.container(0, 0);
     this.container.setVisible(false);
-    this.container.setDepth(10);
+    this.container.setDepth(25);
 
     this.gfx = this.scene.add.graphics();
     this.container.add(this.gfx);
@@ -90,13 +92,11 @@ export class JellyBall implements BallEntity {
     this.container.add(this.sprite);
 
     this.label = this.scene.add.text(0, 0, '', {
-      fontFamily: '"Orbitron", "Courier New", monospace',
+      fontFamily: 'system-ui, "Arial Black", sans-serif',
       fontSize: '16px',
       fontStyle: 'bold',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 2,
     }).setOrigin(0.5);
+    applyBallLabelStyle(this.label, 'green');
     this.container.add(this.label);
 
     this.crownGfx = this.scene.add.graphics();
@@ -110,11 +110,13 @@ export class JellyBall implements BallEntity {
     value: number,
     special: BallSpecial = null,
     frozen: boolean = false,
-    skipSpawnTween: boolean = false
+    skipSpawnTween: boolean = false,
+    faction: BallFaction = 'green',
   ): void {
     this.value = value;
     this.sign = value >= 0 ? 1 : -1;
     this.absValue = Math.abs(value);
+    this.faction = faction;
     this.special = special;
     this.isKing = false;
     this.frozen = frozen;
@@ -152,6 +154,7 @@ export class JellyBall implements BallEntity {
     this.container.setVisible(true);
     this.container.setScale(1, 1);
     this.container.setAlpha(1);
+    this.harvesting = false;
 
     if (!skipSpawnTween) {
       this.container.setScale(0.3, 0.3);
@@ -167,6 +170,7 @@ export class JellyBall implements BallEntity {
 
   deactivate(): void {
     this.active = false;
+    this.harvesting = false;
     this.container.setVisible(false);
     if (this.squashTween) {
       this.squashTween.stop();
@@ -182,7 +186,7 @@ export class JellyBall implements BallEntity {
   }
 
   syncPosition(): void {
-    if (!this.active || !this.body || this.frozen) return;
+    if (!this.active || !this.body || this.frozen || this.harvesting) return;
 
     const body = this.body;
 
@@ -245,7 +249,7 @@ export class JellyBall implements BallEntity {
   }
 
   playSquash(): void {
-    if (!this.body) return;
+    if (!this.body || this.harvesting) return;
     if (this.squashTween) this.squashTween.stop();
     this.wobbleScale = 0;
 
@@ -264,13 +268,47 @@ export class JellyBall implements BallEntity {
     });
   }
 
+  /** Detach Matter body so the ball can tween to the quest pitcher. */
+  prepareHarvest(): void {
+    this.harvesting = true;
+    if (this.body) {
+      this.scene.matter.world.remove(this.body);
+      this.body = null;
+    }
+  }
+
+  playHarvestPulse(onComplete: () => void): void {
+    if (!this.active || !this.container?.visible) {
+      onComplete();
+      return;
+    }
+
+    this.scene.tweens.killTweensOf(this.container);
+    const baseX = this.container.scaleX;
+    const baseY = this.container.scaleY;
+
+    this.scene.tweens.add({
+      targets: this.container,
+      scaleX: baseX * 1.14,
+      scaleY: baseY * 1.14,
+      duration: 90,
+      yoyo: true,
+      repeat: 3,
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        this.container.setScale(baseX, baseY);
+        onComplete();
+      },
+    });
+  }
+
   private getTextureKey(): string {
     if (this.special === 'multiply') return 'x2_ball';
     if (this.special === 'blast') return 'blast_ball';
     if (this.special === 'slice') return 'slice_ball';
     if (this.special === 'chance') return 'dice_ball';
-    if (this.special === 'divide') return 'positive_ball';
-    return this.sign > 0 ? 'positive_ball' : 'negative_ball';
+    if (this.special === 'divide') return factionTexture(this.faction);
+    return factionTexture(this.faction);
   }
 
   private getLabelText(): string {
@@ -286,7 +324,7 @@ export class JellyBall implements BallEntity {
     if (this.special === 'multiply' || this.special === 'divide') {
       return r > 20 ? '20px' : '16px';
     }
-    const px = this.absValue >= 10 ? Math.max(12, r * 0.65) : Math.max(14, r * 0.75);
+    const px = this.absValue >= 10 ? Math.max(13, r * 0.7) : Math.max(15, r * 0.82);
     return `${Math.round(px)}px`;
   }
 
@@ -313,6 +351,7 @@ export class JellyBall implements BallEntity {
       this.label.setFontSize(fontSize);
       this.lastFontSize = fontSize;
     }
+    applyBallLabelStyle(this.label, this.faction);
 
     if (this.frozen && !this.frozenRingDrawn) {
       const r = this.radius;

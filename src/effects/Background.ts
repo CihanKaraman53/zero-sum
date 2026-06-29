@@ -30,6 +30,7 @@ export class Background {
 
   public currentLeft: number = CONTAINER_LEFT;
   public currentRight: number = CONTAINER_RIGHT;
+  public currentTop: number = CONTAINER_TOP;
   public currentBottom: number = CONTAINER_BOTTOM;
 
   private tubeCenterX(): number {
@@ -37,7 +38,7 @@ export class Background {
   }
 
   private tubeCenterY(): number {
-    return (CONTAINER_TOP + this.currentBottom) / 2;
+    return (this.currentTop + this.currentBottom) / 2;
   }
 
   constructor(scene: Phaser.Scene) {
@@ -84,10 +85,11 @@ export class Background {
     this.vignetteGfx.setVisible(!on);
     this.overflowGfx.setVisible(!on);
     this.bgGfx.clear();
+    this.bgGfx.setVisible(!on);
     if (on) {
-      this.bgGfx.fillStyle(0x030308, 1);
-      this.bgGfx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+      this.bgGfx.setVisible(false);
     } else {
+      this.bgGfx.setVisible(true);
       this.drawBackground();
       this.drawInterior();
       this.drawWalls();
@@ -95,14 +97,21 @@ export class Background {
     }
   }
 
-  public updateContainerBounds(left: number, right: number, bottom: number): void {
+  public updateContainerBounds(left: number, right: number, bottom: number, top?: number): void {
     this.currentLeft = left;
     this.currentRight = right;
     this.currentBottom = bottom;
+    if (top !== undefined) this.currentTop = top;
+    if (this.cureMinimal) {
+      this.bgGfx.clear();
+      this.bgGfx.setVisible(false);
+      return;
+    }
     this.cupVisual.setPosition(this.tubeCenterX(), this.tubeCenterY());
     this.drawBackground();
     this.drawInterior();
     this.drawWalls();
+    this.drawGrid();
   }
 
   getCupVisual(): Phaser.GameObjects.Container {
@@ -241,7 +250,7 @@ export class Background {
 
   private tubeLocalBounds() {
     const w = this.currentRight - this.currentLeft;
-    const h = this.currentBottom - CONTAINER_TOP;
+    const h = this.currentBottom - this.currentTop;
     return { l: -w / 2, r: w / 2, t: -h / 2, b: h / 2, w, h };
   }
 
@@ -287,7 +296,7 @@ export class Background {
     const cx = this.tubeCenterX();
     const cy = this.tubeCenterY();
     const tubeW = this.currentRight - this.currentLeft;
-    const tubeH = this.currentBottom - CONTAINER_TOP;
+    const tubeH = this.currentBottom - this.currentTop;
     const glowW = tubeW + 48;
     const glowH = tubeH + 32;
 
