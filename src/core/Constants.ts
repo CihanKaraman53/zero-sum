@@ -130,6 +130,6 @@ export const CURE_L1_CONTAINER_TOP = 96;
 export const CURE_L1_LAUNCHER_Y = 44;
 /** Danger line — extra headroom above the spawn zone before overflow. */
 export const CURE_L1_OVERFLOW_Y = CURE_L1_LAUNCHER_Y + 72;
-export const CURE_L1_QUEST_TARGET = 256;
+export const CURE_L1_QUEST_TARGET = 16;
 export const CURE_L1_QUEST_REQUIRED = 3;
 

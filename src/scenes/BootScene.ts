@@ -56,6 +56,7 @@ export class BootScene extends Phaser.Scene {
     this.load.image('greater_stamina_potion', 'assets/greater_stamina_potion.webp');
     this.load.image('potion_plus8', 'assets/potion_plus8.webp');
     this.load.image('mage_gloves', 'assets/mage_gloves.webp');
+    this.load.image('menu_bg', 'assets/zero_cure_menu.webp');
   }
 
   private applyTextureFilters(): void {

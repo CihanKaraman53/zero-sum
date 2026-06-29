@@ -27,6 +27,9 @@
       image-rendering: auto;
       filter: contrast(1.06) saturate(1.05);
     }
+    picture {
+      display: contents;
+    }
     #game-container {
       position: relative;
       z-index: 1;
@@ -39,7 +42,10 @@
   </style>
 </head>
 <body>
-  <img id="game-bg" src="/assets/cure_forest_bg.webp" alt="" fetchpriority="high" decoding="async" />
+  <picture>
+    <source media="(min-width: 481px)" srcset="/assets/cure_forest_bg_desktop.webp" />
+    <img id="game-bg" src="/assets/cure_forest_bg.webp" alt="" fetchpriority="high" decoding="async" />
+  </picture>
   <div id="game-container"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>

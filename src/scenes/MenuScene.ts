@@ -2,83 +2,99 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../core/Constants';
 
 /**
- * MenuScene — main menu with direct play entry.
+ * MenuScene — main menu displaying the transparent Zero Cure board.
+ * Blurs the background and starts the game on play.
  */
 export class MenuScene extends Phaser.Scene {
+  private bgBlurElement: HTMLElement | null = null;
+
   constructor() {
     super('MenuScene');
   }
 
   create() {
     const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
 
-    this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x050510).setOrigin(0);
-
-    const grid = this.add.graphics().setAlpha(0.15);
-    grid.lineStyle(1, 0x00ff88, 0.4);
-    for (let x = 0; x < GAME_WIDTH; x += 40) {
-      grid.lineBetween(x, 0, x, GAME_HEIGHT);
-    }
-    for (let y = 0; y < GAME_HEIGHT; y += 40) {
-      grid.lineBetween(0, y, GAME_WIDTH, y);
+    // 1. Apply blur to the HTML background element (#game-bg)
+    this.bgBlurElement = document.getElementById('game-bg');
+    if (this.bgBlurElement) {
+      this.bgBlurElement.style.filter = 'blur(10px) contrast(1.06) saturate(1.05)';
+      this.bgBlurElement.style.transition = 'filter 0.5s ease';
     }
 
-    const title = this.add.text(cx, 220, 'ZERO CURE', {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '48px',
-      color: '#00ff88',
-      fontStyle: 'italic bold',
-    }).setOrigin(0.5);
+    // 2. Create a container to hold the board and the interactive button
+    const container = this.add.container(cx, cy);
 
-    this.tweens.add({
-      targets: title,
-      alpha: 0.85,
-      duration: 900,
-      yoyo: true,
-      repeat: -1,
+    // Add the transparent board image
+    const board = this.add.image(0, 0, 'menu_bg');
+    
+    // Scale board to be slightly larger than GAME_WIDTH to avoid being too small (cropped slightly on sides)
+    const scaleFactor = 1.35;
+    board.displayWidth = GAME_WIDTH * scaleFactor;
+    board.scaleY = board.scaleX;
+
+    const boardWidth = board.displayWidth;
+    const boardHeight = boardWidth * (558 / 1024);
+
+    // Add the board to the container
+    container.add(board);
+
+    // 3. Position of the pre-written "OYNA" button at the bottom of the board
+    // Relative coordinates inside the container (centered at 0, 0)
+    // The button vertical center is at 84.2% from the top of the board:
+    // y = boardHeight * 0.842 - boardHeight / 2 = boardHeight * 0.342
+    const buttonLocalY = boardHeight * 0.342;
+
+    // Button width is ~22.8% of board width, height is ~14.5% of board height
+    const btnWidth = boardWidth * 0.228;
+    const btnHeight = boardHeight * 0.145;
+
+    // Create an invisible interactive rectangle for the click/hover zone
+    const hitArea = this.add.rectangle(0, buttonLocalY, btnWidth, btnHeight, 0x000000, 0.001);
+    hitArea.setInteractive({ useHandCursor: true });
+    container.add(hitArea);
+
+    // Hover effects on the play button (we scale the whole board container slightly)
+    hitArea.on('pointerover', () => {
+      this.tweens.add({
+        targets: container,
+        scale: 1.04,
+        duration: 150,
+        ease: 'Back.easeOut'
+      });
     });
 
-    this.createButton(cx, 480, 220, 56, 'OYNA', 0x00ff88, () => {
-      this.scene.start('GameScene');
+    hitArea.on('pointerout', () => {
+      this.tweens.add({
+        targets: container,
+        scale: 1.0,
+        duration: 150,
+        ease: 'Power2'
+      });
     });
 
-    this.add.text(cx, GAME_HEIGHT - 40, 'Tap to start', {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '13px',
-      color: '#666688',
-    }).setOrigin(0.5);
+    hitArea.on('pointerup', () => {
+      this.startGame(container);
+    });
   }
 
-  private createButton(
-    x: number, y: number, w: number, h: number,
-    label: string, color: number, onClick: () => void
-  ): void {
-    const btn = this.add.container(x, y).setDepth(2);
-    const bg = this.add.graphics();
-    const draw = (hover: boolean) => {
-      bg.clear();
-      bg.lineStyle(2, hover ? 0xffffff : color, 1);
-      bg.fillStyle(color, hover ? 0.45 : 0.2);
-      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    };
-    draw(false);
+  private startGame(container: Phaser.GameObjects.Container): void {
+    // Smoothly remove the blur from the background image
+    if (this.bgBlurElement) {
+      this.bgBlurElement.style.filter = 'contrast(1.06) saturate(1.05)';
+    }
 
-    const text = this.add.text(0, 0, label, {
-      fontFamily: '"Orbitron", monospace',
-      fontSize: '24px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    btn.add([bg, text]);
-
-    const hit = this.add.rectangle(x, y, w, h, 0x000000, 0.001)
-      .setDepth(3)
-      .setInteractive({ useHandCursor: true });
-
-    hit.on('pointerover', () => draw(true));
-    hit.on('pointerout', () => draw(false));
-    hit.on('pointerup', onClick);
+    // Fade out the menu board, then start the game scene
+    this.tweens.add({
+      targets: container,
+      alpha: 0,
+      scale: 0.9,
+      duration: 300,
+      ease: 'Power2',
+      onComplete: () => {
+        this.scene.start('GameScene');
+      }
+    });
   }
 }

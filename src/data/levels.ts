@@ -23,5 +23,5 @@ export const LEVEL: LevelConfig = {
   specialChance: 0,
   gravity: 1.0,
   dropSpeed: 1.2,
-  description: 'Aynı sayıları birleştirerek +256 iksirini doldur!',
+  description: 'Aynı sayıları birleştirerek +16 iksirini doldur!',
 };

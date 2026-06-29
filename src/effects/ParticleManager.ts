@@ -201,7 +201,7 @@ export class ParticleManager {
       p.life = 700 + Math.random() * 500;
       p.maxLife = p.life;
       p.visualRadius = 3.5 + Math.random() * 5;
-      p.color = Math.random() > 0.5 ? 0x5ecc38 : 0x2d7a22;
+      p.color = Math.random() > 0.5 ? 0x3888ec : 0x224a7a;
       p.buoyancy = 0.11;
       p.drag = 0.988;
       p.wobblePhase = Math.random() * Math.PI * 2;
@@ -222,7 +222,7 @@ export class ParticleManager {
       p.circle.setVisible(true);
     }
 
-    const sparkleColors = [0xffffff, 0xd4ffcc, 0x7aff55, 0x39ff14, 0xfff8a0];
+    const sparkleColors = [0xffffff, 0xcce0ff, 0x55aaff, 0x1490ff, 0xfff8a0];
     for (let i = 0; i < 18; i++) {
       const p = this.acquireLive();
       if (!p) break;

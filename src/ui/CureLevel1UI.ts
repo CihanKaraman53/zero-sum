@@ -55,6 +55,24 @@ const COUNTER_BELOW_BOTTLE = 50;
 const MUSHROOM_EMPTY_TINT = 0x6a7288;
 const MUSHROOM_EMPTY_ALPHA = 0.42;
 
+/** Quest panel — yeşil vurguların mavi karşılıkları. */
+const CURE_BLUE = 0x3888ec;
+const CURE_BLUE_LIGHT = 0x55aaff;
+const CURE_BLUE_BRIGHT = 0x66bbff;
+const CURE_BLUE_NEON = 0x1490ff;
+const CURE_BLUE_DARK = 0x2e6aaa;
+const CURE_BLUE_MUTED = 0x5280c0;
+const CURE_BLUE_DEEP = 0x3280b8;
+const CURE_BLUE_PALE = 0xb0d4ff;
+const CURE_BLUE_MIST = 0xe0eeff;
+const CURE_BLUE_FLASH = 0xcce0ff;
+const CURE_BLUE_TINT = 0xaac8ff;
+const CURE_BLUE_STR = '#55aaff';
+const CURE_BLUE_STROKE = '#102840';
+const CURE_BLUE_INNER = 0x162030;
+const CURE_BLUE_FILL = 0x0c1828;
+const CURE_BLUE_BORDER_IDLE = 0x3d4a5c;
+
 const UPCOMING_BALL_PX = 32;
 const UPCOMING_SLOT_GAP = 44;
 const QUEST_PANEL_H = GAME_HEIGHT - 32;
@@ -118,7 +136,7 @@ export class CureLevel1UI {
     const liquidMask = this.createBodyMask(scene, bottleBack);
 
     const innerBg = scene.add.graphics();
-    innerBg.fillStyle(0x1a2e16, 1);
+    innerBg.fillStyle(CURE_BLUE_INNER, 1);
     innerBg.fillRoundedRect(FILL_LEFT, FILL_TOP, BODY_W, BODY_H, BODY_R);
     innerBg.setMask(liquidMask);
     bottleBack.add(innerBg);
@@ -141,8 +159,8 @@ export class CureLevel1UI {
         fontFamily: 'system-ui, "Arial Black", sans-serif',
         fontSize: '13px',
         fontStyle: 'bold',
-        color: '#fff8c8',
-        stroke: '#0d2810',
+        color: CURE_BLUE_STR,
+        stroke: CURE_BLUE_STROKE,
         strokeThickness: 6,
       })
       .setOrigin(0.5);
@@ -163,7 +181,7 @@ export class CureLevel1UI {
       const slotX = (i - 0.5) * UPCOMING_SLOT_GAP;
       const slotRoot = scene.add.container(slotX, 0);
 
-      const glow = scene.add.circle(0, 0, UPCOMING_BALL_PX * 0.52, 0x5ecc38, 0.14);
+      const glow = scene.add.circle(0, 0, UPCOMING_BALL_PX * 0.52, CURE_BLUE, 0.14);
       glow.setBlendMode(Phaser.BlendModes.ADD);
 
       const sprite = scene.add.sprite(0, 0, GREEN_THROWABLE_TEXTURE);
@@ -253,7 +271,7 @@ export class CureLevel1UI {
 
     this.counterPill = scene.add
       .rectangle(0, 0, 76, 44, 0x0a1810, 0.94)
-      .setStrokeStyle(2, 0x3d5244, 0.65);
+      .setStrokeStyle(2, CURE_BLUE_BORDER_IDLE, 0.65);
     this.counterRoot.add(this.counterPill);
 
     const slotY = -8;
@@ -268,8 +286,8 @@ export class CureLevel1UI {
         fontFamily: 'system-ui, "Arial Black", sans-serif',
         fontSize: '14px',
         fontStyle: 'bold',
-        color: '#7aff8a',
-        stroke: '#0a2810',
+        color: CURE_BLUE_STR,
+        stroke: CURE_BLUE_STROKE,
         strokeThickness: 3,
       })
       .setOrigin(0.5);
@@ -313,9 +331,9 @@ export class CureLevel1UI {
   private updateCounterDisplay(step: number, newlyFilledIndex: number = -1): void {
     this.counterValueText.setText(`${step} / ${CURE_L1_QUEST_REQUIRED}`);
 
-    this.counterPill.setStrokeStyle(2, step > 0 ? 0x5ecc38 : 0x3d5244, step > 0 ? 0.95 : 0.55);
+    this.counterPill.setStrokeStyle(2, step > 0 ? CURE_BLUE : CURE_BLUE_BORDER_IDLE, step > 0 ? 0.95 : 0.55);
     if (step > 0) {
-      this.counterPill.setFillStyle(0x0c2014, 0.96);
+      this.counterPill.setFillStyle(CURE_BLUE_FILL, 0.96);
     } else {
       this.counterPill.setFillStyle(0x0a1810, 0.94);
     }
@@ -370,7 +388,7 @@ export class CureLevel1UI {
 
     const wx = this.panelX + slot.root.x;
     const wy = this.counterWorldY + slot.root.y;
-    this.particles?.burst(wx, wy, 0x5ecc38, 8, 2, 340);
+    this.particles?.burst(wx, wy, CURE_BLUE, 8, 2, 340);
     this.particles?.burst(wx, wy, 0x88ccff, 5, 1.8, 280);
 
     this.scene.tweens.add({
@@ -580,10 +598,10 @@ export class CureLevel1UI {
     const fillH = FILL_BOTTOM - FILL_TOP;
     const surfaceY = FILL_BOTTOM - fillH * level;
 
-    g.fillStyle(0x4dcc2e, 1);
+    g.fillStyle(CURE_BLUE_DARK, 1);
     g.fillRect(FILL_LEFT, surfaceY, BODY_W, FILL_BOTTOM - surfaceY + 4);
 
-    g.fillStyle(0x7aff55, 0.9);
+    g.fillStyle(CURE_BLUE_LIGHT, 0.9);
     g.fillRect(FILL_LEFT + 2, surfaceY, BODY_W - 4, 5);
 
     const bubbles = Math.floor(2 + level * 5);
@@ -618,7 +636,7 @@ export class CureLevel1UI {
   }
 
   private spawnMagicRings(scene: Phaser.Scene, x: number, y: number): void {
-    const colors = [0x7aff55, 0xc8ffb0, 0x39ff14];
+    const colors = [CURE_BLUE_LIGHT, CURE_BLUE_PALE, CURE_BLUE_NEON];
     for (let i = 0; i < 3; i++) {
       const ring = scene.add.graphics().setDepth(FX_DEPTH).setPosition(x, y);
       ring.lineStyle(2.5 - i * 0.5, colors[i], 0.85 - i * 0.15);
@@ -643,7 +661,7 @@ export class CureLevel1UI {
         y,
         12 + i * 2,
         7,
-        i % 2 === 0 ? 0x6fdc52 : 0x4ab832,
+        i % 2 === 0 ? CURE_BLUE_MUTED : CURE_BLUE_DEEP,
         0.32,
       );
       plume.setDepth(FX_DEPTH - 2);
@@ -671,7 +689,7 @@ export class CureLevel1UI {
       const a = (i / rays) * Math.PI * 2;
       const inner = 3 + (i % 2) * 2;
       const outer = 14 + (i % 3) * 4;
-      burst.lineStyle(i % 2 === 0 ? 2 : 1.5, i % 2 === 0 ? 0xe8ffe0 : 0x7aff55, 0.9);
+      burst.lineStyle(i % 2 === 0 ? 2 : 1.5, i % 2 === 0 ? CURE_BLUE_MIST : CURE_BLUE_LIGHT, 0.9);
       burst.lineBetween(Math.cos(a) * inner, Math.sin(a) * inner, Math.cos(a) * outer, Math.sin(a) * outer);
     }
     scene.tweens.add({
@@ -720,7 +738,7 @@ export class CureLevel1UI {
     scene.tweens.killTweensOf(this.emblemImg);
     scene.tweens.killTweensOf(this.questTargetText);
 
-    this.emblemImg.setTint(0xaaffaa);
+    this.emblemImg.setTint(CURE_BLUE_TINT);
     scene.tweens.add({
       targets: this.emblemImg,
       scaleX: this.emblemImg.scaleX * 1.08,
@@ -744,7 +762,7 @@ export class CureLevel1UI {
       this.panelX + BODY_CX,
       this.bottleCy + BOTTLE_MOUTH_Y,
       10,
-      0x7aff55,
+      CURE_BLUE_LIGHT,
       0.45,
     );
     halo.setDepth(FX_DEPTH - 1);
@@ -766,7 +784,7 @@ export class CureLevel1UI {
     const fillH = FILL_BOTTOM - FILL_TOP;
     const surfaceY = FILL_BOTTOM - fillH * level;
     const flash = scene.add.graphics().setDepth(48);
-    flash.fillStyle(0xd4ffcc, 0.85);
+    flash.fillStyle(CURE_BLUE_FLASH, 0.85);
     flash.fillRect(FILL_LEFT, surfaceY - 2, BODY_W, 6);
     flash.setPosition(this.panelX, this.bottleCy);
 
