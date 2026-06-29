@@ -27,6 +27,11 @@ export class Background {
   private isTwisted = false;
   private flipVignette = false;
   private cureMinimal = false;
+  private cureAtmosphere = false;
+  private cureFogGfx: Phaser.GameObjects.Graphics | null = null;
+  private cureDustGfx: Phaser.GameObjects.Graphics | null = null;
+  private fogPhase = 0;
+  private readonly dustMotes: { x: number; y: number; vy: number; r: number; a: number }[] = [];
 
   public currentLeft: number = CONTAINER_LEFT;
   public currentRight: number = CONTAINER_RIGHT;
@@ -64,6 +69,10 @@ export class Background {
   }
 
   update(time: number): void {
+    if (this.cureAtmosphere) {
+      this.updateCureAtmosphere(time);
+      return;
+    }
     if (this.cureMinimal) return;
 
     this.gridOffset = (time * 0.01) % 40;
@@ -76,6 +85,67 @@ export class Background {
     this.overflowTick++;
     if (this.overflowTick % 2 === 0) {
       this.drawOverflowLine(time);
+    }
+  }
+
+  public setCureAtmosphere(on: boolean): void {
+    this.cureAtmosphere = on;
+    if (on) {
+      if (!this.cureFogGfx) {
+        this.cureFogGfx = this.scene.add.graphics().setDepth(1);
+        this.cureDustGfx = this.scene.add.graphics().setDepth(3);
+        this.initDustMotes();
+      }
+      this.cureFogGfx.setVisible(true);
+      this.cureDustGfx?.setVisible(true);
+    } else {
+      this.cureFogGfx?.setVisible(false);
+      this.cureDustGfx?.setVisible(false);
+    }
+  }
+
+  private initDustMotes(): void {
+    this.dustMotes.length = 0;
+    for (let i = 0; i < 16; i++) {
+      this.dustMotes.push({
+        x: Math.random() * GAME_WIDTH,
+        y: Math.random() * GAME_HEIGHT,
+        vy: -0.04 - Math.random() * 0.08,
+        r: 0.3 + Math.random() * 0.7,
+        a: 0.04 + Math.random() * 0.08,
+      });
+    }
+  }
+
+  private updateCureAtmosphere(time: number): void {
+    if (!this.cureFogGfx || !this.cureDustGfx) return;
+
+    this.fogPhase = time * 0.00012;
+    const playRight = this.currentRight;
+
+    this.cureFogGfx.clear();
+    const bands = 4;
+    for (let i = 0; i < bands; i++) {
+      const t = i / bands;
+      const y = (GAME_HEIGHT * t) + Math.sin(this.fogPhase + i * 1.3) * 10;
+      const h = GAME_HEIGHT / bands + 16;
+      const alpha = 0.02 + t * 0.025;
+      this.cureFogGfx.fillStyle(0xc8e8c0, alpha);
+      this.cureFogGfx.fillRect(0, y, playRight, h);
+    }
+
+    this.cureDustGfx.clear();
+    for (const m of this.dustMotes) {
+      m.y += m.vy;
+      m.x += Math.sin(time * 0.001 + m.y * 0.02) * 0.12;
+      if (m.y < -8) {
+        m.y = GAME_HEIGHT + 8;
+        m.x = Math.random() * playRight;
+      }
+      if (m.x > playRight) m.x = Math.random() * playRight;
+
+      this.cureDustGfx.fillStyle(0xe8ffd8, m.a);
+      this.cureDustGfx.fillCircle(m.x, m.y, m.r);
     }
   }
 

@@ -1,10 +1,14 @@
 import Phaser from 'phaser';
 import {
   LAUNCHER_Y, LAUNCHER_MIN_X, LAUNCHER_MAX_X, CONTAINER_CENTER_X,
-  DROP_COOLDOWN, getBallRadius, CONTAINER_BOTTOM, CONTAINER_TOP,
+  DROP_COOLDOWN, getBallVisualRadius, CONTAINER_BOTTOM, CONTAINER_TOP,
   CURE_L1_LAUNCHER_Y, GAME_HEIGHT,
 } from '../core/Constants';
-import { factionTexture, BallFaction, applyBallLabelStyle, GREEN_THROWABLE_TEXTURE } from './BallEntity';
+import {
+  factionTexture, BallFaction, applyBallLabelStyle, GREEN_THROWABLE_TEXTURE,
+  scaleForThrowableTexture, applyThrowableLabel, throwableLabelFontSize, THROWABLE_LABEL_FONT,
+  MUSHROOM_OPAQUE_HALF_W,
+} from './BallEntity';
 
 /** Cure mode — mage gloves hold the preview orb between the palms. */
 const CURE_GLOVE_SIZE = 68;
@@ -106,6 +110,9 @@ export class Launcher {
   }
 
   private previewBaseScale(): number {
+    if (this.cureMinimal && !this.previewSpecial) {
+      return this.previewPixelSize() / (MUSHROOM_OPAQUE_HALF_W * 2);
+    }
     return this.previewPixelSize() / this.ballPreview.frame.width;
   }
 
@@ -225,7 +232,7 @@ export class Launcher {
     this.container.add(this.ballPreview);
 
     this.ballLabel = scene.add.text(0, 0, '', {
-      fontFamily: 'system-ui, "Arial Black", sans-serif',
+      fontFamily: THROWABLE_LABEL_FONT,
       fontSize: '20px',
       fontStyle: 'bold',
     }).setOrigin(0.5);
@@ -416,19 +423,26 @@ export class Launcher {
       this.ballPreview.setTexture('positive_ball');
       this.ballPreview.setTint(0x00ccff);
     } else {
-      this.ballPreview.setTexture(factionTexture(this.previewFaction));
+      const absVal = Math.abs(this.previewValue);
+      const tex = factionTexture(this.previewFaction);
+      this.ballPreview.setTexture(tex);
       this.ballPreview.clearTint();
+      const visualR = getBallVisualRadius(absVal);
+      const s = scaleForThrowableTexture(tex, visualR) * (this.previewPixelSize() / (visualR * 2));
+      this.ballPreview.setScale(s);
+      this.ballPreview.setX(0);
     }
-
-    this.applyPreviewScale();
 
     if (this.cureMinimal) {
       this.ballPreview.setPosition(0, this.ballHoldY);
-      this.ballLabel.setPosition(0, this.ballHoldY);
-      this.ballLabel.setFontSize('14px');
-    } else {
-      this.ballLabel.setFontSize('20px');
+      this.layoutPreviewLabel();
+      return;
     }
+
+    this.applyPreviewScale();
+    this.ballLabel.setPosition(0, 0);
+    this.ballLabel.setFontSize('20px');
+    this.ballLabel.setVisible(true);
 
     if (this.previewSpecial === 'multiply') {
       this.ballLabel.setText('×2');
@@ -441,6 +455,22 @@ export class Launcher {
       this.ballLabel.setText(`${prefix}${this.previewValue}`);
     }
     applyBallLabelStyle(this.ballLabel, this.previewFaction);
+  }
+
+  private layoutPreviewLabel(): void {
+    if (this.previewSpecial) {
+      this.ballLabel.setText('');
+      this.ballLabel.setVisible(false);
+      return;
+    }
+    this.ballLabel.setVisible(true);
+    const absVal = Math.abs(this.previewValue);
+    const visualR = getBallVisualRadius(absVal);
+    this.ballLabel.setFontSize(throwableLabelFontSize(visualR, absVal));
+    applyBallLabelStyle(this.ballLabel, this.previewFaction);
+    const prefix = this.previewValue > 0 ? '+' : '';
+    this.ballLabel.setText(`${prefix}${this.previewValue}`);
+    applyThrowableLabel(this.ballLabel, visualR, this.ballHoldY);
   }
 
   private drawAimLine(time: number): void {

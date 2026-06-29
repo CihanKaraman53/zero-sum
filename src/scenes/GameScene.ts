@@ -23,6 +23,7 @@ import {
   CAT_WALL, CAT_BALL, WALL_RESTITUTION, WALL_FRICTION,
   CURE_L1_PADDING, CURE_L1_PLAY_WIDTH, CURE_L1_CONTAINER_TOP,
   CURE_L1_QUEST_REQUIRED, CURE_L1_QUEST_TARGET,
+  getBallRadius,
 } from '../core/Constants';
 import { gamePools } from '../core/GamePools';
 import { devWarn } from '../core/Production';
@@ -61,6 +62,7 @@ export class GameScene extends Phaser.Scene {
   private leftWall!: MatterJS.BodyType;
   private rightWall!: MatterJS.BodyType;
   private bottomWall!: MatterJS.BodyType;
+  private questWall!: MatterJS.BodyType;
 
   private readonly onPointerDown = (pointer: Phaser.Input.Pointer): void => {
     if (pointer.x > CURE_L1_PLAY_WIDTH) return;
@@ -143,6 +145,13 @@ export class GameScene extends Phaser.Scene {
     this.setupWalls();
 
     this.background.setCureMinimal(true);
+    this.background.setCureAtmosphere(true);
+    this.background.updateContainerBounds(
+      this.containerLeft,
+      this.containerRight,
+      this.containerBottom,
+      this.containerTop,
+    );
 
     this.hud = new HUD(this, this.scoring, this.levelManager);
     this.cureUI = new CureLevel1UI(this, this.particles);
@@ -214,7 +223,7 @@ export class GameScene extends Phaser.Scene {
       const dropItem = this.levelManager.consumeNextDrop();
       const dropX = spawnX ?? this.launcher.getX();
       const dropY = this.launcher.getDropY();
-      const spawnRadius = 18;
+      const spawnRadius = getBallRadius(Math.abs(dropItem.value));
       const clampedX = Phaser.Math.Clamp(
         dropX,
         this.containerLeft + spawnRadius + 2,
@@ -262,6 +271,14 @@ export class GameScene extends Phaser.Scene {
 
     this.rightWall = this.matter.add.rectangle(
       this.containerRight + 50, GAME_HEIGHT / 2, 100, GAME_HEIGHT, wallOpts,
+    ) as MatterJS.BodyType;
+
+    this.questWall = this.matter.add.rectangle(
+      CURE_L1_PLAY_WIDTH + 2,
+      GAME_HEIGHT / 2,
+      16,
+      GAME_HEIGHT,
+      wallOpts,
     ) as MatterJS.BodyType;
   }
 

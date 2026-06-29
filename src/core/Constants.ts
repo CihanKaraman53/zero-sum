@@ -35,14 +35,24 @@ export const LAUNCHER_MIN_X = CONTAINER_LEFT + 30;
 export const LAUNCHER_MAX_X = CONTAINER_RIGHT - 30;
 export const DROP_COOLDOWN = 350; // ms between drops
 
-// ── Ball sizes (radius by abs value) ──
-export function getBallRadius(absValue: number): number {
-  if (absValue <= 2) return 18;
-  if (absValue === 4) return 24;
-  if (absValue === 8) return 32;
-  if (absValue === 16) return 42;
+// ── Ball sizes (visual radius by abs value; physics hitbox is slightly smaller) ──
+/** Matter.js circle is ~12.5% smaller than the bottle sprite silhouette. */
+export const BALL_HITBOX_SHRINK = 0.875;
+
+export function getBallVisualRadius(absValue: number): number {
+  if (absValue <= 2) return 15;
+  if (absValue === 4) return 21;
+  if (absValue === 8) return 29;
+  if (absValue === 16) return 39;
+  if (absValue === 32) return 49;
+  if (absValue === 64) return 59;
   const logVal = Math.log2(absValue);
-  return Math.round(18 + (logVal - 1) * 8);
+  return Math.round(15 + (logVal - 1) * 7.2);
+}
+
+/** Physics collision radius — smaller than visual for natural stacking gaps. */
+export function getBallRadius(absValue: number): number {
+  return Math.max(10, Math.round(getBallVisualRadius(absValue) * BALL_HITBOX_SHRINK));
 }
 
 // ── Colors ──
@@ -114,6 +124,8 @@ export const CURE_L1_PLAY_WIDTH = GAME_WIDTH - CURE_L1_QUEST_WIDTH;
 export const CURE_L1_PADDING = 14;
 export const CURE_L1_CONTAINER_TOP = 96;
 export const CURE_L1_LAUNCHER_Y = 44;
+/** Danger line — extra headroom above the spawn zone before overflow. */
+export const CURE_L1_OVERFLOW_Y = CURE_L1_LAUNCHER_Y + 72;
 export const CURE_L1_QUEST_TARGET = 256;
 export const CURE_L1_QUEST_REQUIRED = 3;
 

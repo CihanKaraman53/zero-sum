@@ -10,7 +10,11 @@ import {
 } from '../core/Constants';
 import type { JellyBall } from '../entities/JellyBall';
 import type { ParticleManager } from '../effects/ParticleManager';
-import { applyBallLabelStyle, factionTexture, GREEN_THROWABLE_TEXTURE } from '../entities/BallEntity';
+import {
+  applyBallLabelStyle, factionTexture, GREEN_THROWABLE_TEXTURE,
+  scaleForThrowableTexture, applyThrowableLabel, throwableLabelFontSize, THROWABLE_LABEL_FONT,
+} from '../entities/BallEntity';
+import { getBallVisualRadius } from '../core/Constants';
 import type { DropQueueItem } from '../systems/LevelManager';
 
 const BOTTLE_DISPLAY = 160;
@@ -164,8 +168,8 @@ export class CureLevel1UI {
       sprite.setAlpha(0.88);
 
       const label = scene.add.text(0, 0, '', {
-        fontFamily: 'system-ui, "Arial Black", sans-serif',
-        fontSize: '13px',
+        fontFamily: THROWABLE_LABEL_FONT,
+        fontSize: '16px',
         fontStyle: 'bold',
       }).setOrigin(0.5);
       applyBallLabelStyle(label, 'green');
@@ -187,43 +191,48 @@ export class CureLevel1UI {
         continue;
       }
       slot.root.setVisible(true);
-      this.applyUpcomingVisual(slot, item);
+      this.applyThrowablePreview(slot.sprite, slot.label, item, UPCOMING_BALL_PX);
+      slot.glow.setRadius(UPCOMING_BALL_PX * 0.52);
     }
   }
 
-  private applyUpcomingVisual(slot: UpcomingSlot, item: DropQueueItem): void {
-    const { sprite, label } = slot;
-
+  private applyThrowablePreview(
+    sprite: Phaser.GameObjects.Sprite,
+    label: Phaser.GameObjects.Text,
+    item: DropQueueItem,
+    targetPx: number,
+  ): void {
     if (item.special === 'multiply') {
       sprite.setTexture('x2_ball');
       sprite.clearTint();
       label.setText('×2');
-    } else if (item.special === 'blast') {
-      sprite.setTexture('blast_ball');
+      label.setPosition(0, 0);
+      sprite.setScale(targetPx / sprite.frame.width);
+      return;
+    }
+    if (item.special) {
+      sprite.setTexture(item.special === 'blast' ? 'blast_ball' : item.special === 'slice' ? 'slice_ball' : 'dice_ball');
       sprite.clearTint();
       label.setText('');
-    } else if (item.special === 'slice') {
-      sprite.setTexture('slice_ball');
-      sprite.clearTint();
-      label.setText('');
-    } else if (item.special === 'chance') {
-      sprite.setTexture('dice_ball');
-      sprite.clearTint();
-      label.setText('');
-    } else if (item.special) {
-      sprite.setTexture('positive_ball');
-      sprite.setTint(0x00ccff);
-      label.setText('');
-    } else {
-      sprite.setTexture(factionTexture(item.faction));
-      sprite.clearTint();
-      const prefix = item.value > 0 ? '+' : '';
-      label.setText(`${prefix}${item.value}`);
+      label.setVisible(true);
+      sprite.setScale(targetPx / sprite.frame.width);
+      return;
     }
 
+    const absVal = Math.abs(item.value);
+    sprite.clearTint();
+    const visualR = getBallVisualRadius(absVal);
+    const tex = factionTexture(item.faction);
+    const scale = scaleForThrowableTexture(tex, visualR) * (targetPx / (visualR * 2));
+    sprite.setScale(scale);
+    sprite.setX(0);
+
+    label.setVisible(true);
+    const prefix = item.value > 0 ? '+' : '';
+    label.setText(`${prefix}${item.value}`);
+    label.setFontSize(throwableLabelFontSize(visualR, absVal));
     applyBallLabelStyle(label, item.faction);
-    sprite.setScale(UPCOMING_BALL_PX / sprite.frame.width);
-    slot.glow.setRadius(UPCOMING_BALL_PX * 0.52);
+    applyThrowableLabel(label, visualR);
   }
 
   private buildCounter(scene: Phaser.Scene): void {
