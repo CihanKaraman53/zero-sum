@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   getBallRadius, getBallVisualRadius, SPECIAL_COLOR,
-  CAT_BALL, CAT_WALL, CONTAINER_BOTTOM,
+  CAT_BALL, CAT_WALL, CONTAINER_BOTTOM, CONTAINER_LEFT, CONTAINER_RIGHT,
   BALL_RESTITUTION, BALL_FRICTION, BALL_FRICTION_AIR, BALL_DENSITY,
 } from '../core/Constants';
 import {
@@ -248,7 +248,15 @@ export class JellyBall implements BallEntity {
       this.lastDrawnScaleY = targetScaleY;
     }
 
-    if (py > CONTAINER_BOTTOM + 100 || px < -50 || px > 530) {
+    const scene = this.scene as {
+      containerLeft?: number;
+      containerRight?: number;
+      containerBottom?: number;
+    };
+    const left = (scene.containerLeft ?? CONTAINER_LEFT) - 60;
+    const right = (scene.containerRight ?? CONTAINER_RIGHT) + 60;
+    const bottom = (scene.containerBottom ?? CONTAINER_BOTTOM) + 120;
+    if (py > bottom || px < left || px > right) {
       this.deactivate();
     }
   }

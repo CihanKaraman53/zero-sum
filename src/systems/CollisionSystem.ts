@@ -44,8 +44,11 @@ export class CollisionSystem {
   private pendingOverlapSweep = false;
   private readonly onCollisionStart = (event: { pairs: CollisionPair[] }) => this.queueCollisions(event);
   private readonly onAfterUpdate = () => this.flushPendingCollisions();
+  private tornDown = false;
   // Fusion callback for level manager
   onFusion: ((value: number, faction: BallFaction, source: BallEntity) => void) | null = null;
+  /** Cure — hedef değerdeki toplar zero-sum/shrink'e girmez (+16 şişeye giderken yok olmasın). */
+  isQuestProtected: ((value: number) => boolean) | null = null;
   onBallDestroyed: ((wasFrozen: boolean) => void) | null = null;
   onZeroSum: ((absValue: number) => void) | null = null;
   onSplit: (() => void) | null = null;
@@ -81,6 +84,8 @@ export class CollisionSystem {
   }
 
   destroy(): void {
+    if (this.tornDown) return;
+    this.tornDown = true;
     this.scene.matter.world.off('collisionstart', this.onCollisionStart);
     this.scene.matter.world.off('afterupdate', this.onAfterUpdate);
   }
@@ -208,6 +213,7 @@ export class CollisionSystem {
   private checkOverlapMerges(): void {
     const list = this.ballPool.getActiveList();
     const count = this.ballPool.getActiveCount();
+    const pending: { lower: BallEntity; upper: BallEntity }[] = [];
 
     for (let i = 0; i < count; i++) {
       const a = list[i];
@@ -227,7 +233,7 @@ export class CollisionSystem {
         if (b.sign !== aSign || b.absValue !== aAbs) continue;
 
         const bodyB = b.body;
-        if (!bodyA.id || !bodyB.id) break;
+        if (!bodyA.id || !bodyB.id) continue;
 
         const pairId = this.pairKey(bodyA.id, bodyB.id);
         if (this.processedPairs.has(pairId)) continue;
@@ -235,21 +241,44 @@ export class CollisionSystem {
         const dx = ax - bodyB.position.x;
         const dy = ay - bodyB.position.y;
         const distSq = dx * dx + dy * dy;
-        const touch = aRadius + b.radius + 2;
-        if (distSq <= touch * touch) {
-          this.processedPairs.add(pairId);
-          const lower = ay >= bodyB.position.y ? a : b;
-          const upper = lower === a ? b : a;
-          this.handleMerge(lower, upper);
-          if (!a.active) break;
-        }
+        const touch = aRadius + b.radius - 1;
+        if (touch <= 0 || distSq > touch * touch) continue;
+
+        const vAx = bodyA.velocity.x;
+        const vAy = bodyA.velocity.y;
+        const vBx = bodyB.velocity.x;
+        const vBy = bodyB.velocity.y;
+        const relVx = vAx - vBx;
+        const relVy = vAy - vBy;
+        if (relVx * relVx + relVy * relVy > 36) continue;
+
+        this.processedPairs.add(pairId);
+        const lower = ay >= bodyB.position.y ? a : b;
+        const upper = lower === a ? b : a;
+        pending.push({ lower, upper });
       }
     }
+
+    for (let k = 0; k < pending.length; k++) {
+      const { lower, upper } = pending[k];
+      if (lower.active && upper.active) this.handleMerge(lower, upper);
+    }
+  }
+
+  private blocksOppositeInteraction(a: BallEntity, b: BallEntity): boolean {
+    if (!this.isQuestProtected) return false;
+    return this.isQuestProtected(a.value) || this.isQuestProtected(b.value);
   }
 
   private processAnchorCollision(anchor: BallEntity, dynamic: BallEntity): void {
     const sameSign = anchor.sign === dynamic.sign;
     const sameValue = anchor.absValue === dynamic.absValue;
+
+    if (!sameSign && this.blocksOppositeInteraction(anchor, dynamic)) {
+      anchor.playSquash();
+      dynamic.playSquash();
+      return;
+    }
 
     if (sameSign && sameValue) {
       this.handleMerge(anchor, dynamic);
@@ -271,6 +300,11 @@ export class CollisionSystem {
       // MERGE: same sign + same value
       this.handleMerge(ballA, ballB);
     } else if (!sameSign) {
+      if (this.blocksOppositeInteraction(ballA, ballB)) {
+        ballA.playSquash();
+        ballB.playSquash();
+        return;
+      }
       // Opposite signs!
       if (ballA.isKing || ballB.isKing) {
         if (ballA.isKing && ballB.isKing) {
@@ -348,9 +382,12 @@ export class CollisionSystem {
     const mergeX = sameRow ? (sx + ox) / 2 : sx;
     const bottomY = Math.max(sy + survivorR, oy + otherR);
 
-    const vx = survivor.body && other.body
-      ? (survivor.body.velocity.x + other.body.velocity.x) * 0.2
-      : 0;
+    const sv = survivor.body?.velocity;
+    const ov = other.body?.velocity;
+    const svSpd = sv ? sv.x * sv.x + sv.y * sv.y : 0;
+    const ovSpd = ov ? ov.x * ov.x + ov.y * ov.y : 0;
+    const settled = svSpd < 0.64 && ovSpd < 0.64;
+    const vx = settled ? 0 : (sv && ov ? (sv.x + ov.x) * 0.2 : 0);
 
     other.deactivate();
     this.releaseBall(other);
@@ -362,7 +399,10 @@ export class CollisionSystem {
 
     if (survivor.body) {
       this.scene.matter.body.setPosition(survivor.body, { x: mergeX, y: settleY });
-      this.scene.matter.body.setVelocity(survivor.body, { x: vx, y: 2 });
+      this.scene.matter.body.setVelocity(
+        survivor.body,
+        settled ? { x: 0, y: 0 } : { x: vx, y: 2 },
+      );
       this.scene.matter.body.setAngularVelocity(survivor.body, 0);
     }
     if (survivor.frozen) {
@@ -497,8 +537,8 @@ export class CollisionSystem {
         newBall.activate(pos.x, pos.y, absVal * bigSign, null, false, false, spawnFaction);
         if (absVal >= 2048) newBall.makeKing();
         if (newBall.body) {
-          const vx = (Math.random() - 0.5) * 4;
-          const vy = -1 - Math.random() * 2;
+          const vx = (Math.random() - 0.5) * 2;
+          const vy = 1 + Math.random() * 1.5;
           this.scene.matter.body.setVelocity(newBall.body, { x: vx, y: vy });
         }
         placedSpawns.push({ x: pos.x, y: pos.y, radius: newBall.radius });

@@ -126,10 +126,58 @@ export const TEMP_VEC2 = { x: 0, y: 0 };
 export const CURE_L1_QUEST_WIDTH = 132;
 export const CURE_L1_PLAY_WIDTH = GAME_WIDTH - CURE_L1_QUEST_WIDTH;
 export const CURE_L1_PADDING = 14;
+/** Visible play rectangle — narrower than full play column, centered. */
+export const CURE_L1_ARENA_WIDTH = 90;
+export const CURE_L1_PANEL_GAP = 10;
+export const CURE_L1_UI_HEIGHT = GAME_HEIGHT - CURE_L1_PADDING * 2;
+export const CURE_L1_UI_TOP = CURE_L1_PADDING;
+export const CURE_L1_UI_CENTER_Y = CURE_L1_UI_TOP + CURE_L1_UI_HEIGHT / 2;
 export const CURE_L1_CONTAINER_TOP = 96;
 export const CURE_L1_LAUNCHER_Y = 44;
 /** Danger line — extra headroom above the spawn zone before overflow. */
 export const CURE_L1_OVERFLOW_Y = CURE_L1_LAUNCHER_Y + 72;
 export const CURE_L1_QUEST_TARGET = 16;
 export const CURE_L1_QUEST_REQUIRED = 3;
+/** Sabit panel görünümü — tüm bölümlerde aynı. */
+export const CURE_PLAY_PANEL_ALPHA = 0.72;
+export const CURE_QUEST_PANEL_ALPHA = 0.78;
+
+export function getCureUILayout(layout?: { arenaWidth: number; questWidth: number }): {
+  uiLeft: number;
+  uiRight: number;
+  arenaLeft: number;
+  arenaRight: number;
+  arenaCenterX: number;
+  arenaWidth: number;
+  questLeft: number;
+  questRight: number;
+  questCenterX: number;
+  questWidth: number;
+} {
+  const arenaWidth = layout?.arenaWidth ?? CURE_L1_ARENA_WIDTH;
+  const questWidth = layout?.questWidth ?? CURE_L1_QUEST_WIDTH;
+  const uiWidth = arenaWidth + CURE_L1_PANEL_GAP + questWidth;
+  const uiLeft = (GAME_WIDTH - uiWidth) / 2;
+  const arenaLeft = uiLeft;
+  const arenaRight = uiLeft + arenaWidth;
+  const questLeft = arenaRight + CURE_L1_PANEL_GAP;
+  const questRight = questLeft + questWidth;
+  return {
+    uiLeft,
+    uiRight: questRight,
+    arenaLeft,
+    arenaRight,
+    arenaCenterX: arenaLeft + arenaWidth / 2,
+    arenaWidth,
+    questLeft,
+    questRight,
+    questCenterX: questLeft + questWidth / 2,
+    questWidth,
+  };
+}
+
+export function getCureArenaBounds(): { left: number; right: number; centerX: number } {
+  const layout = getCureUILayout();
+  return { left: layout.arenaLeft, right: layout.arenaRight, centerX: layout.arenaCenterX };
+}
 
